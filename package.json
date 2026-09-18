@@ -1,0 +1,31 @@
+{
+  "name": "cmd-tools",
+  "version": "0.1.0",
+  "description": "Ink + React + TypeScript terminal toolkit (upload-server first)",
+  "type": "module",
+  "bin": {
+    "cmd-tools": "./bin/cmd-tools.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/cli.js",
+    "dev": "tsx src/cli.tsx",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "ink": "^5.2.1",
+    "ink-select-input": "^6.0.0",
+    "ink-text-input": "^6.0.0",
+    "meow": "^13.2.0",
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/react": "^18.3.18",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
