@@ -2,9 +2,11 @@
 import { render } from 'ink';
 import meow from 'meow';
 import { App } from './app.js';
+import { isEmptyConfigFile } from './capabilities/upload-server/config.js';
 import {
-  aiPromptForUser,
+  emptyConfigHint,
   ensureUserConfig,
+  nextStepHint,
   runInit,
 } from './capabilities/upload-server/init.js';
 import { UploadWizard } from './capabilities/upload-server/UploadWizard.js';
@@ -18,8 +20,8 @@ const cli = meow(
     $ cmd-tools upload-server [options]
 
   Options
-    --init              生成 JSON 并打印给 AI 的提示词
-    --force             与 --init 合用：覆盖已有配置
+    --init              生成空的 upload-server.json（不复制 example）
+    --force             与 --init 合用：覆盖已有配置为空骨架
     --dry-run, -n       演练（不上传）
     --server, -s        服务器 name
     --packages, -p      package name，逗号分隔
@@ -40,19 +42,15 @@ const cli = meow(
 
 function autoEnsureConfig(): void {
   const { file, created } = ensureUserConfig({ configPath: cli.flags.config });
-  if (!created) return;
-  console.log(`已自动初始化配置: ${file}`);
-  console.log('');
-  console.log('------------------------------------------------------------');
-  console.log('① 给使用者 AI 的提示词（下面整段复制）');
-  console.log('------------------------------------------------------------');
-  console.log(aiPromptForUser(file));
-  console.log('------------------------------------------------------------');
-  console.log('① 结束');
-  console.log('');
-  console.log('请把真实路径 / 主机 / 密码填进该 JSON（不要提交密钥）。');
-  console.log('字段说明见 config/upload-server.fields.md；需要重打提示词可再运行 --init。');
-  console.log('');
+  if (created) {
+    console.log(`已创建空配置: ${file}`);
+    console.log(nextStepHint(file));
+    console.log('');
+    return;
+  }
+  if (isEmptyConfigFile(file)) {
+    console.log(emptyConfigHint(file));
+  }
 }
 
 async function main() {

@@ -2,9 +2,23 @@
 
 配置查找顺序：`--config` → `./config/upload-server.json` → `~/.config/cmd-tools/upload-server.json` → 包内 `upload-server.example.json`（演示）。
 
-首次启动若无用户配置，会自动从 example 复制一份（也可手动 `cmd-tools upload-server --init` 重打 AI 提示词）。
+首次启动若无用户配置，会自动写入**空骨架**到可写的 `./config/upload-server.json`（不是 example 的副本；仅当 `./config` 不可写时才退到 `~/.config/cmd-tools`）。也可手动 `cmd-tools upload-server --init`（`--force` 覆盖为空骨架）。
 
-示例模板：同目录 `upload-server.example.json`。
+示例模板（参考用，不要当用户配置）：同目录 `upload-server.example.json`。
+
+空骨架：
+
+```json
+{
+  "rootPath": "",
+  "servers": [],
+  "groups": []
+}
+```
+
+**下一步：先告诉我要发版的项目名字**（可多个）。确认名字之前不要全盘扫描。
+你说出名字后，再只扫描这些项目并填写该 JSON（`rootPath` / `servers` / `groups` / `packages`；`build` 必填；字段见本文件；示例见 `upload-server.example.json`）。
+填完后：`pnpm start -- upload-server --dry-run`，再真发。
 
 ---
 
@@ -12,9 +26,9 @@
 
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
-| `rootPath` | 是 | 本机代码根目录（绝对路径）。`groups[].packages[].dir` 都相对此路径。 |
-| `servers` | 是 | 远端主机列表，至少一台。 |
-| `groups` | 是 | 组件分组；交互里可整组勾选。 |
+| `rootPath` | 是（发版时） | 本机代码根目录（绝对路径）。`groups[].packages[].dir` 都相对此路径。空配置可为 `""`。 |
+| `servers` | 是（发版时） | 远端主机列表。空配置可为 `[]`；真正发版至少一台。 |
+| `groups` | 是（发版时） | 组件分组；交互里可整组勾选。空配置可为 `[]`。 |
 
 ---
 
@@ -60,18 +74,12 @@
 
 ---
 
-## 给 AI 的扫描指引
+## 填写顺序
 
-填写配置前，请扫描本机/工作区：
-
-1. 含 `upload` / `deploy` / `scp` / `ssh` / `rsync` 的脚本（含 `.vscode`）
-2. `package.json`、`pom.xml`、`Makefile` / `justfile`、`scripts/`
-3. 产物：`dist`、`target/*.jar`、`Dockerfile`、`start.sh`
-4. 文档或注释里的主机、用户、远端目录
-
-把扫描到的主机/路径/构建命令写进 JSON；不要改 cmd-tools 源码；不要把密钥写进 README。
-
-填完后建议：
+1. **先确认要发版的项目名字**（可多个）。确认之前不要全盘扫描工作区。
+2. 说出名字后，**只扫描这些项目**（其目录下的 `package.json` / `pom.xml`、构建脚本、已有 upload/deploy 线索），按上面字段写入 JSON。
+3. 不要改 cmd-tools 源码；不要把密钥写进 README。
+4. 填完后建议：
 
 ```bash
 pnpm start -- upload-server --dry-run
