@@ -341,9 +341,12 @@ function EmptyConfigExit({
   onExit: () => void;
   onHome: boolean;
 }) {
-  useInput((_input, key) => {
-    if (key.return || key.leftArrow) onExit();
-  });
+  useInput(
+    (_input, key) => {
+      if (key.return || key.leftArrow) onExit();
+    },
+    { isActive: Boolean(process.stdin.isTTY) },
+  );
   return (
     <Box marginTop={1}>
       <Text color={colors.muted}>{onHome ? 'Enter · ← 回首页' : 'Enter · ← 退出'}</Text>
