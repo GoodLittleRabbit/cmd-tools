@@ -2,8 +2,11 @@
 import { render } from 'ink';
 import meow from 'meow';
 import { App } from './app.js';
-import { findUserConfig } from './capabilities/upload-server/config.js';
-import { missingUserConfigMessage, runInit } from './capabilities/upload-server/init.js';
+import {
+  aiPromptForUser,
+  ensureUserConfig,
+  runInit,
+} from './capabilities/upload-server/init.js';
 import { UploadWizard } from './capabilities/upload-server/UploadWizard.js';
 
 const cli = meow(
@@ -35,10 +38,28 @@ const cli = meow(
   },
 );
 
+function autoEnsureConfig(): void {
+  const { file, created } = ensureUserConfig({ configPath: cli.flags.config });
+  if (!created) return;
+  console.log(`已自动初始化配置: ${file}`);
+  console.log('');
+  console.log('------------------------------------------------------------');
+  console.log('① 给使用者 AI 的提示词（下面整段复制）');
+  console.log('------------------------------------------------------------');
+  console.log(aiPromptForUser(file));
+  console.log('------------------------------------------------------------');
+  console.log('① 结束');
+  console.log('');
+  console.log('请把真实路径 / 主机 / 密码填进该 JSON（不要提交密钥）。');
+  console.log('字段说明见 config/upload-server.fields.md；需要重打提示词可再运行 --init。');
+  console.log('');
+}
+
 async function main() {
   const cmd = cli.input[0];
 
   if (!cmd) {
+    autoEnsureConfig();
     render(<App dryRun={cli.flags.dryRun} />);
     return;
   }
@@ -53,10 +74,7 @@ async function main() {
     process.exit(runInit({ force: cli.flags.force, configPath: cli.flags.config }));
   }
 
-  if (!cli.flags.dryRun && !findUserConfig(cli.flags.config)) {
-    console.error(missingUserConfigMessage());
-    process.exit(1);
-  }
+  autoEnsureConfig();
 
   const packageNames = cli.flags.packages
     ?.split(',')

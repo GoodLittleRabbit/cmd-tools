@@ -4,6 +4,7 @@ import {
   bundledExampleConfigPath,
   cwdConfigPath,
   expandPath,
+  findUserConfig,
   packageRoot,
   xdgConfigPath,
 } from './config.js';
@@ -40,19 +41,22 @@ export function chooseInitTarget(explicit?: string): { file: string; via: 'confi
 
 export const FIELD_TABLE = `
 字段说明（upload-server.json）
+完整文档见仓库 config/upload-server.fields.md；示例见 upload-server.example.json。
 
-rootPath
-  本机根路径。groups[]
-  name      组件名（一键勾选整组）
-  packages  该组件下的发版单元
-
-groups[].packages[]
-  name      显示名 / 勾选标识
-  dir       相对 rootPath 的本地目录
-  build     打包命令（必填）
-  dest      { "<服务器 name>": "/远端绝对路径" }
-  outDir / jar / module / releaseName 可选
-  after    上传成功后钩子数组（仅此格式）：[{ "label": "中文说明", "run": "shell" }, ...]
+rootPath          本机代码根目录（绝对路径）
+servers[]         远端主机列表（name / host / port / user / password）
+groups[]          组件分组（一键勾选整组）
+  name            组件名
+  packages[]      该组件下的发版单元
+    name          显示名 / 勾选标识
+    dir           相对 rootPath 的本地目录
+    build         打包命令（必填，不可省略）
+    dest          { "<服务器 name>": "/远端绝对路径" }（key 须与 servers[].name 一致）
+    outDir        web 产物目录（可选，可由工具探测）
+    jar           api jar 相对路径（可选，可由工具探测）
+    module        Maven -pl 模块（可选，可由工具探测）
+    releaseName   远端文件名覆盖（可选）
+    after         上传成功后钩子：[{ "label": "中文说明", "run": "shell" }, ...]
 `;
 
 export function aiPromptForUser(confPath: string): string {
@@ -66,6 +70,8 @@ export function aiPromptForUser(confPath: string): string {
 - 不要调用或依赖业务仓库里现成的 upload/deploy shell；那些脚本只当作「信息来源」来推断主机、路径。
 - 密码、主机、路径一律写进 JSON；不要把密钥写进源码或 README。
 - JSON 必须合法（双引号、无尾逗号、无注释）。
+- packages[].build 必填；outDir / jar / module 可省略，由工具按目录结构探测。
+- 字段详解见同仓库 config/upload-server.fields.md；可对照 config/upload-server.example.json。
 - 填完后请让使用者执行：cmd-tools upload-server --dry-run
 - 真发：cmd-tools upload-server
 
@@ -77,7 +83,7 @@ export function aiPromptForUser(confPath: string): string {
 - dist、target/*.jar、Dockerfile、start.sh
 - 文档或注释里的主机、用户、远端目录
 
-根据扫描结果，按下列结构填写 JSON（可参考同目录 example）：
+根据扫描结果，按下列结构填写 JSON（可参考 example）：
 {
   "rootPath": "/绝对路径",
   "servers": [
@@ -102,7 +108,28 @@ ${FIELD_TABLE}
 
 占位符必须换成真实值。
 dest 的 key 必须与 servers[].name 一致。
-build / outDir / jar / module 通常可省略，由工具自动探测。`;
+build 必填；outDir / jar / module 通常可省略，由工具自动探测。`;
+}
+
+/**
+ * Ensure a user config file exists. First create does not need --force.
+ * If an explicit --config path is missing, create its parent and copy the example there.
+ */
+export function ensureUserConfig(opts?: { configPath?: string }): { file: string; created: boolean } {
+  const existing = findUserConfig(opts?.configPath);
+  if (existing) {
+    return { file: existing, created: false };
+  }
+
+  const example = bundledExampleConfigPath();
+  if (!fs.existsSync(example)) {
+    throw new Error(`缺少示例配置: ${example}`);
+  }
+
+  const { file } = chooseInitTarget(opts?.configPath);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.copyFileSync(example, file);
+  return { file, created: true };
 }
 
 export function runInit(opts: { force?: boolean; configPath?: string }): number {

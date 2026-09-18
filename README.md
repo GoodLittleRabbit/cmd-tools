@@ -2,36 +2,41 @@
 
 ## 使用步骤
 
-1. 安装并编译
+1. 安装
 
 ```bash
 pnpm install
-pnpm build
 ```
 
-2. 日常启动（用 dist）
+2. 开发/日常启动（自动 build 再 start；缺 `dist/cli.js` 时 `start` 也会先编译）
 
 ```bash
-pnpm start
-# 等同：node dist/cli.js
-# 或全局：pnpm link --global 后直接 cmd-tools
+pnpm dev
+# 等同：pnpm build && pnpm start
+# 已编译过可只：pnpm start
 ```
 
-开发调试不用 build：`pnpm dev`
+3. 缺配置时自动初始化
 
-3. 初始化配置
+首次 `pnpm start` / `pnpm start -- upload-server`（含 `--dry-run`）若本机还没有 `upload-server.json`，会自动从 example 复制一份，并打印可粘贴给 AI 的提示词：
+
+```
+已自动初始化配置: <path>
+```
+
+也可手动重打提示词：
 
 ```bash
 pnpm start -- upload-server --init
-# 或：node dist/cli.js upload-server --init
 ```
 
-生成 `config/upload-server.json`（或 `~/.config/cmd-tools/upload-server.json`），并打印给 AI 填配置的提示词。  
-**本机 `config/upload-server.json` 含密码，不进 git。**
+**本机配置含密码，不进 git**（`config/upload-server.json` 已 gitignore）。
 
-4. 填配置
+4. 填 JSON
 
-按提示词让 AI 扫描本机项目，只改 JSON：`rootPath`、`servers`、`groups` / `packages`（`name`、`dir`、`build`、`dest`，可选 `after: [{ label, run }]`）。
+按提示词让 AI 扫描本机项目，只改配置文件。字段说明见 [`config/upload-server.fields.md`](config/upload-server.fields.md)，示例见 `config/upload-server.example.json`。
+
+要点：`rootPath`、`servers`、`groups` / `packages`（`name`、`dir`、**`build` 必填**、`dest`；可选 `outDir` / `jar` / `module` / `after`）。
 
 5. 演练
 

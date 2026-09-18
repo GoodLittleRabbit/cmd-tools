@@ -3,7 +3,6 @@ import { Box, Text, useApp, useInput } from 'ink';
 import Spinner from 'ink-spinner';
 import {
   describeDest,
-  findUserConfig,
   loadConfig,
   type LoadedConfig,
   type Package,
@@ -13,7 +12,6 @@ import { resolvePackageBuild } from './detect.js';
 import { runDeploy } from './deploy/run.js';
 import { openDeployLogFile } from './deploy/logFile.js';
 import { packageTitle } from './display.js';
-import { missingUserConfigMessage } from './init.js';
 import { Banner } from '../../ui/Banner.js';
 import { SelectList } from '../../ui/SelectList.js';
 import { GroupPicker } from '../../ui/GroupPicker.js';
@@ -39,12 +37,7 @@ export function UploadWizard(props: {
     else exit();
   };
 
-  const [config] = useState<LoadedConfig>(() => {
-    if (!dryRun && !findUserConfig(props.configPath)) {
-      throw new Error(missingUserConfigMessage());
-    }
-    return loadConfig(props.configPath);
-  });
+  const [config] = useState<LoadedConfig>(() => loadConfig(props.configPath));
 
   const [step, setStep] = useState<Step>(() => {
     if (props.serverName && props.packageNames?.length) return 'confirm';

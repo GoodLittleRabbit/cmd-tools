@@ -8,9 +8,9 @@
     "cmd-tools": "./bin/cmd-tools.js"
   },
   "scripts": {
-    "dev": "tsx src/cli.tsx",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/cli.js",
+    "start": "node scripts/run.mjs",
+    "dev": "pnpm build && pnpm start",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "engines": {
