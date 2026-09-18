@@ -68,7 +68,7 @@ export type LoadedConfig = {
   demo: boolean;
 };
 
-type RawConfig = {
+export type RawConfig = {
   rootPath?: string;
   /** @deprecated */
   codeRoot?: string;
@@ -178,9 +178,42 @@ export function resolveConfigFile(explicit?: string): { file: string; demo: bool
   if (user) return { file: user, demo: false };
   const example = bundledExampleConfigPath();
   if (!isFile(example)) {
-    throw new Error('找不到 upload-server.json。请先复制 example 并填写。');
+    throw new Error('找不到 upload-server.json。请先运行 --init 生成空配置，或填写 ./config/upload-server.json。');
   }
   return { file: example, demo: true };
+}
+
+function isBlankRoot(raw: RawConfig): boolean {
+  return !String(raw.rootPath ?? raw.codeRoot ?? '').trim();
+}
+
+function isEmptyServers(raw: RawConfig): boolean {
+  return !Array.isArray(raw.servers) || raw.servers.length === 0;
+}
+
+function isEmptyGroupsAndPackages(raw: RawConfig): boolean {
+  const groupsEmpty = !Array.isArray(raw.groups) || raw.groups.length === 0;
+  const packagesEmpty = !Array.isArray(raw.packages) || raw.packages.length === 0;
+  const servicesEmpty = !Array.isArray(raw.services) || raw.services.length === 0;
+  return groupsEmpty && packagesEmpty && servicesEmpty;
+}
+
+/** Completely unfilled skeleton: blank rootPath, no servers, no groups/packages. */
+export function isEmptyRawConfig(raw: RawConfig): boolean {
+  return isBlankRoot(raw) && isEmptyServers(raw) && isEmptyGroupsAndPackages(raw);
+}
+
+export function isEmptyConfigFile(file: string): boolean {
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as RawConfig;
+    return isEmptyRawConfig(raw);
+  } catch {
+    return false;
+  }
+}
+
+export function isEmptyConfig(config: LoadedConfig): boolean {
+  return !config.rootPath.trim() && config.servers.length === 0 && config.groups.length === 0;
 }
 
 function requireDest(dest: Record<string, string> | undefined, where: string): Record<string, string> {
@@ -262,8 +295,25 @@ export function loadConfig(configPath?: string): LoadedConfig {
     throw new Error(`配置不是合法 JSON: ${file}\n${e instanceof Error ? e.message : e}`);
   }
 
+  if (raw.servers != null && !Array.isArray(raw.servers)) {
+    throw new Error(`配置 servers 必须是数组: ${file}`);
+  }
+  if (raw.groups != null && !Array.isArray(raw.groups)) {
+    throw new Error(`配置 groups 必须是数组: ${file}`);
+  }
+
+  const serversEmpty = isEmptyServers(raw);
+  const groupsAndPackagesEmpty = isEmptyGroupsAndPackages(raw);
+
+  // Empty skeleton (and any unfilled config with no servers/groups) must load without crashing.
+  if (serversEmpty && groupsAndPackagesEmpty) {
+    const rootPath = expandPath((raw.rootPath ?? raw.codeRoot)?.trim() || '');
+    return { rootPath, servers: [], groups: [], packages: [], configPath: file, demo };
+  }
+
   const rootPath = expandPath((raw.rootPath ?? raw.codeRoot)?.trim() || process.cwd());
-  if (!Array.isArray(raw.servers) || !raw.servers.length) {
+  const serversRaw = raw.servers;
+  if (serversEmpty || !serversRaw?.length) {
     throw new Error(`配置缺少 servers: ${file}`);
   }
   const hasGroups = Array.isArray(raw.groups) && raw.groups.length > 0;
@@ -272,7 +322,7 @@ export function loadConfig(configPath?: string): LoadedConfig {
     throw new Error(`配置缺少 groups（或旧字段 packages）: ${file}`);
   }
 
-  const servers: Server[] = raw.servers.map((s, i) => {
+  const servers: Server[] = serversRaw.map((s, i) => {
     const where = `servers[${i}]`;
     if (!s.host?.trim()) throw new Error(`${where}: 缺少 host`);
     if (!s.user?.trim()) throw new Error(`${where}: 缺少 user`);

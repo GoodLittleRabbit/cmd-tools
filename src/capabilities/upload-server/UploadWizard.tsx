@@ -3,6 +3,7 @@ import { Box, Text, useApp, useInput } from 'ink';
 import Spinner from 'ink-spinner';
 import {
   describeDest,
+  isEmptyConfig,
   loadConfig,
   type LoadedConfig,
   type Package,
@@ -38,8 +39,10 @@ export function UploadWizard(props: {
   };
 
   const [config] = useState<LoadedConfig>(() => loadConfig(props.configPath));
+  const configEmpty = isEmptyConfig(config) || (!config.servers.length && !config.groups.length);
 
   const [step, setStep] = useState<Step>(() => {
+    if (configEmpty) return 'server';
     if (props.serverName && props.packageNames?.length) return 'confirm';
     if (props.serverName) return 'packages';
     return 'server';
@@ -151,6 +154,17 @@ export function UploadWizard(props: {
     setStatus(success ? (dryRun ? 'dry-run 完成' : '发版完成') : '发版失败');
     setBusy(false);
     setStep('done');
+  }
+
+  if (configEmpty) {
+    return (
+      <Box flexDirection="column">
+        <Banner title="cmd-tools · upload-server" subtitle={dryRun ? 'dry-run' : undefined} />
+        <Text color={colors.danger}>配置为空，请先告诉我要发版的项目名字再填写。</Text>
+        <Text color={colors.muted}>配置 {config.configPath}</Text>
+        <EmptyConfigExit onHome={Boolean(props.onHome)} onExit={goHome} />
+      </Box>
+    );
   }
 
   if (step === 'server') {
@@ -294,7 +308,7 @@ function ConfirmStep(props: {
         服务器  {server.name}  ({server.user}@{server.host}
         {server.port && server.port !== 22 ? `:${server.port}` : ''})
       </Text>
-      <Text color={colors.muted}>ROOT_PATH  {config.rootPath}</Text>
+      <Text color={colors.muted}>rootPath  {config.rootPath}</Text>
       <Box flexDirection="column" marginY={1}>
         {packages.map((p) => {
           let shown = p;
@@ -316,6 +330,23 @@ function ConfirmStep(props: {
         items={actions.map((a, i) => ({ value: String(i), label: a }))}
         onSubmit={(item) => onAction(Number(item.value))}
       />
+    </Box>
+  );
+}
+
+function EmptyConfigExit({
+  onExit,
+  onHome,
+}: {
+  onExit: () => void;
+  onHome: boolean;
+}) {
+  useInput((_input, key) => {
+    if (key.return || key.leftArrow) onExit();
+  });
+  return (
+    <Box marginTop={1}>
+      <Text color={colors.muted}>{onHome ? 'Enter · ← 回首页' : 'Enter · ← 退出'}</Text>
     </Box>
   );
 }
