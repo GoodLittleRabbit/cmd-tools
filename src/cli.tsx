@@ -49,7 +49,7 @@ function autoEnsureConfig(): void {
     return;
   }
   if (isEmptyConfigFile(file)) {
-    console.log(emptyConfigHint());
+    console.log(emptyConfigHint(file));
   }
 }
 

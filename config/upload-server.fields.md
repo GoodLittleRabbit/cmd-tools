@@ -16,7 +16,9 @@
 }
 ```
 
-下一步：先告诉助手要发版的**项目名字**（可多个）。确认名字之前不要全盘扫描；说出名字后，只扫描这些项目并填写该 JSON。
+**下一步：先告诉我要发版的项目名字**（可多个）。确认名字之前不要全盘扫描。
+你说出名字后，再只扫描这些项目并填写该 JSON（`rootPath` / `servers` / `groups` / `packages`；`build` 必填；字段见本文件；示例见 `upload-server.example.json`）。
+填完后：`pnpm start -- upload-server --dry-run`，再真发。
 
 ---
 

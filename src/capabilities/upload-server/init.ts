@@ -71,9 +71,9 @@ groups[]          组件分组（一键勾选整组）
 export function nextStepHint(file: string): string {
   return [
     `已准备配置文件：${file}`,
-    '下一步：先告诉我要发版的项目名字（可多个）。确认名字之前不要全盘扫描。',
-    '说出名字后，只扫描这些项目并填写该 JSON；字段见 config/upload-server.fields.md；示例见 upload-server.example.json；`build` 必填。',
-    '填完：`pnpm start -- upload-server --dry-run`，再真发。',
+    '**下一步：先告诉我要发版的项目名字**（可多个）。确认名字之前不要全盘扫描。',
+    '你说出名字后，再只扫描这些项目并填写该 JSON（rootPath / servers / groups / packages；build 必填；字段见 config/upload-server.fields.md；示例见 upload-server.example.json）。',
+    '填完后：`pnpm start -- upload-server --dry-run`，再真发。',
   ].join('\n');
 }
 
@@ -123,11 +123,11 @@ export function missingUserConfigMessage(): string {
     '未找到本机 upload-server.json。',
     '请先运行: cmd-tools upload-server --init',
     '或直接启动，会自动创建空的 ./config/upload-server.json。',
-    '下一步：先告诉我要发版的项目名字，确认后再扫描填写。',
+    '**下一步：先告诉我要发版的项目名字**（可多个）。确认名字之前不要全盘扫描。',
     `查找位置: ${cwdConfigPath()} 或 ${xdgConfigPath()}`,
   ].join('\n');
 }
 
-export function emptyConfigHint(): string {
-  return '配置仍为空，请先告诉我要发版的项目名字再填写。';
+export function emptyConfigHint(file: string): string {
+  return [`配置仍为空，请先告诉我项目名字`, nextStepHint(file)].join('\n');
 }

@@ -160,7 +160,7 @@ export function UploadWizard(props: {
     return (
       <Box flexDirection="column">
         <Banner title="cmd-tools · upload-server" subtitle={dryRun ? 'dry-run' : undefined} />
-        <Text color={colors.danger}>配置为空，请先告诉我要发版的项目名字再填写。</Text>
+        <Text color={colors.danger}>配置仍为空，请先告诉我项目名字</Text>
         <Text color={colors.muted}>配置 {config.configPath}</Text>
         <EmptyConfigExit onHome={Boolean(props.onHome)} onExit={goHome} />
       </Box>
