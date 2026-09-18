@@ -1,27 +1,30 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveRemoteMap, type Server, type Service } from '../config.js';
+import { resolveRemoteMap, webReleaseName, type Server, type Service } from '../config.js';
 import { formatBytes, runShell, tarGzipDir } from './exec.js';
 import { scpFile, sshExec } from './ssh.js';
 import { runStep } from './step.js';
 import type { DeployContext } from './types.js';
 
-export function remoteWebExtractScript(remoteDir: string): string {
+export function remoteWebExtractScript(remoteDir: string, releaseName: string): string {
+  const tgz = `${releaseName}.tgz`;
   return [
     'set -euo pipefail',
     `REMOTE=${JSON.stringify(remoteDir)}`,
+    `NAME=${JSON.stringify(releaseName)}`,
+    `TGZ=${JSON.stringify(tgz)}`,
     'mkdir -p "$REMOTE"',
     'cd "$REMOTE"',
     'TS=$(date +%Y%m%d%H%M%S)',
-    'if [ -d dist-prod ]; then',
-    '  mv dist-prod "dist-prod.$TS"',
-    '  echo "backed up dist-prod -> dist-prod.$TS"',
+    'if [ -d "$NAME" ]; then',
+    '  mv "$NAME" "$NAME.$TS"',
+    '  echo "backed up $NAME -> $NAME.$TS"',
     'fi',
-    'mkdir -p dist-prod',
-    'tar -xzf dist-prod.tgz -C dist-prod',
-    'rm -f dist-prod.tgz',
-    'echo "extracted dist-prod"',
+    'mkdir -p "$NAME"',
+    'tar -xzf "$TGZ" -C "$NAME"',
+    'rm -f "$TGZ"',
+    'echo "extracted $NAME"',
   ].join('\n');
 }
 
@@ -32,16 +35,18 @@ export async function deployWeb(opts: {
 }): Promise<void> {
   const { ctx, server, service } = opts;
   const project = path.join(ctx.codeRoot, service.projectRel);
-  const artifactDir = path.join(project, service.artifactOrMap);
-  const remote = resolveRemoteMap(service.remoteMap || service.artifactOrMap, server.id);
+  const artifactRel = service.artifactDir || 'dist';
+  const artifactDir = path.join(project, artifactRel);
+  const releaseName = webReleaseName(service);
+  const remote = resolveRemoteMap(service.remoteMap, server.id);
   if (!remote) {
     throw new Error(`未配置远端路径: ${service.id} @ ${server.id}`);
   }
-  const remoteTgz = `${remote.replace(/\/$/, '')}/dist-prod.tgz`;
+  const remoteTgz = `${remote.replace(/\/$/, '')}/${releaseName}.tgz`;
   const localTgz = path.join(os.tmpdir(), `cmd-tools-${service.id}-${Date.now()}.tgz`);
 
   await runStep(ctx, 'build', async () => {
-    const cmd = service.buildOrShort?.trim();
+    const cmd = service.buildCommand?.trim();
     if (!cmd) {
       ctx.log('无构建命令，跳过');
       return;
@@ -60,7 +65,7 @@ export async function deployWeb(opts: {
   try {
     await runStep(ctx, 'pack', async () => {
       if (ctx.dryRun) {
-        ctx.log(`[dry-run] would pack ${artifactDir} → dist-prod.tgz (--no-xattrs)`);
+        ctx.log(`[dry-run] would pack ${artifactDir} → ${releaseName}.tgz (--no-xattrs)`);
         return;
       }
       const indexHtml = path.join(artifactDir, 'index.html');
@@ -75,7 +80,7 @@ export async function deployWeb(opts: {
     await runStep(ctx, 'upload', async () => {
       const dest = `${server.user}@${server.host}:${remoteTgz}`;
       if (ctx.dryRun) {
-        ctx.log(`[dry-run] would scp dist-prod.tgz → ${dest}`);
+        ctx.log(`[dry-run] would scp ${releaseName}.tgz → ${dest}`);
         return;
       }
       ctx.log(`scp ${localTgz} → ${dest}`);
@@ -83,14 +88,14 @@ export async function deployWeb(opts: {
     });
 
     await runStep(ctx, 'remote', async () => {
-      const script = remoteWebExtractScript(remote);
+      const script = remoteWebExtractScript(remote, releaseName);
       if (ctx.dryRun) {
         ctx.log(
-          `[dry-run] would ssh ${server.user}@${server.host} : backup dist-prod → dist-prod.$TS; tar -xzf; rm tgz (${remote})`,
+          `[dry-run] would ssh ${server.user}@${server.host} : backup ${releaseName} → ${releaseName}.$TS; tar -xzf; rm tgz (${remote})`,
         );
         return;
       }
-      ctx.log(`ssh extract ${server.host}:${remote}`);
+      ctx.log(`ssh extract ${server.host}:${remote}/${releaseName}`);
       await sshExec({ server, command: script, onLog: ctx.log });
     });
   } finally {

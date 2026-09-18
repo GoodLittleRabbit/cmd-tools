@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveApiLayout, resolveRemoteMap, type Server, type Service } from '../config.js';
-import { formatBytes, runCommand, shQuote } from './exec.js';
+import { apiRemoteSubdir, resolveRemoteMap, type Server, type Service } from '../config.js';
+import { formatBytes, runShell, shQuote } from './exec.js';
 import { scpFile, sshExec } from './ssh.js';
 import { runStep } from './step.js';
 import type { DeployContext } from './types.js';
@@ -39,33 +39,38 @@ export async function deployApi(opts: {
 }): Promise<void> {
   const { ctx, server, service } = opts;
   const project = path.join(ctx.codeRoot, service.projectRel);
-  const layout = resolveApiLayout(service.buildOrShort);
+  if (!service.jarRel || !service.moduleRel) {
+    throw new Error(`服务 ${service.id} 未配置 jarRel/moduleRel（请在 conf 写全，或使用 API_PRESET 短名）`);
+  }
   const remoteRoot = resolveRemoteMap(service.remoteMap, server.id);
   if (!remoteRoot) {
     throw new Error(`未配置远端路径: ${service.id} @ ${server.id}`);
   }
-  const remoteDir = `${remoteRoot.replace(/\/$/, '')}/${layout.remoteSubdir}`;
-  const jarAbs = findJar(project, layout.jarRel);
-  const moduleDir = path.join(project, layout.moduleRel);
+  const remoteDir = `${remoteRoot.replace(/\/$/, '')}/${apiRemoteSubdir(service)}`;
+  const jarAbs = findJar(project, service.jarRel);
+  const moduleDir = path.join(project, service.moduleRel);
 
   await runStep(ctx, 'build', async () => {
-    const mvnArgs = ['-pl', layout.moduleRel, '-am', '-DskipTests', 'package'];
-    const shown = `mvn ${mvnArgs.join(' ')}`;
+    const cmd = service.buildCommand?.trim();
+    if (!cmd) {
+      ctx.log('无构建命令，跳过');
+      return;
+    }
     if (ctx.dryRun) {
-      ctx.log(`[dry-run] skip ${shown}  (cwd=${project})`);
+      ctx.log(`[dry-run] skip ${cmd}  (cwd=${project})`);
       return;
     }
     if (!fs.existsSync(project)) {
       throw new Error(`项目不存在: ${project}`);
     }
-    ctx.log(`$ ${shown}`);
-    await runCommand('mvn', mvnArgs, { cwd: project, onLog: ctx.log });
+    ctx.log(`$ ${cmd}`);
+    await runShell(cmd, { cwd: project, onLog: ctx.log });
   });
 
   let extras: string[] = [];
   await runStep(ctx, 'pack', async () => {
     if (ctx.dryRun) {
-      ctx.log(`[dry-run] jar ${layout.jarRel} → ${remoteDir}/`);
+      ctx.log(`[dry-run] jar ${service.jarRel} → ${remoteDir}/`);
       ctx.log('[dry-run] extras Dockerfile / start.sh / .dockerignore（若存在）');
       return;
     }

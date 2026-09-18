@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyApiPreset } from './preset.js';
 
 export type Server = {
   id: string;
@@ -17,39 +18,26 @@ export type Service = {
   label: string;
   kind: 'web' | 'api';
   projectRel: string;
-  buildOrShort: string;
-  artifactOrMap: string;
+  buildCommand: string;
   remoteMap: string;
+  /** web: 相对项目的产物目录 */
+  artifactDir?: string;
+  /** web: 远端目录名 / tgz 名（默认 artifactDir 的 basename） */
+  remoteReleaseName?: string;
+  /** api */
+  jarRel?: string;
+  moduleRel?: string;
+  remoteSubdir?: string;
 };
 
-/** yudao 布局：gateway 特判，其余 short → yudao-module-{short}-server */
-export type ApiLayout = {
-  short: string;
-  jarRel: string;
-  moduleRel: string;
-  remoteSubdir: string;
+export type LoadedConfig = {
+  codeRoot: string;
+  servers: Server[];
+  services: Service[];
+  configPath: string;
+  demo: boolean;
+  apiPreset: string;
 };
-
-const API_SPECIAL: Record<string, Omit<ApiLayout, 'short'>> = {
-  gateway: {
-    jarRel: 'yudao-gateway/target/yudao-gateway.jar',
-    moduleRel: 'yudao-gateway',
-    remoteSubdir: 'gateway-server',
-  },
-};
-
-/** 已知短名（其余走通用 *-server 规则）：system, ai, infra, llm, goals, calendar, dataease, product, mail, kfifilemanager */
-export function resolveApiLayout(short: string): ApiLayout {
-  const key = short.trim();
-  const special = API_SPECIAL[key];
-  if (special) return { short: key, ...special };
-  return {
-    short: key,
-    jarRel: `yudao-module-${key}/yudao-module-${key}-server/target/yudao-module-${key}-server.jar`,
-    moduleRel: `yudao-module-${key}/yudao-module-${key}-server`,
-    remoteSubdir: `${key}-server`,
-  };
-}
 
 function expandPath(p: string): string {
   if (!p) return p;
@@ -69,31 +57,138 @@ function extractArrayBlock(src: string, name: string): string[] {
   return [...m[1].matchAll(/"([^"]*)"/g)].map((x) => x[1]);
 }
 
-export function defaultConfigPath(): string {
+function quotedValue(src: string, name: string): string | undefined {
+  const m = src.match(new RegExp(`^\\s*${name}="([^"]*)"`, 'm'));
+  return m?.[1];
+}
+
+export function bundledExampleConfigPath(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
-  // dist/capabilities/upload-server -> repo root
-  const fromDist = path.resolve(here, '../../../config/upload-server.conf');
-  if (fs.existsSync(fromDist) || fs.existsSync(fromDist.replace(/\.conf$/, '.example.conf'))) {
-    return fromDist;
-  }
+  // dist|src /capabilities/upload-server → package root
+  return path.resolve(here, '../../../config/upload-server.example.conf');
+}
+
+export function xdgConfigPath(): string {
+  const base = process.env.XDG_CONFIG_HOME?.trim()
+    ? expandPath(process.env.XDG_CONFIG_HOME)
+    : path.join(os.homedir(), '.config');
+  return path.join(base, 'cmd-tools', 'upload-server.conf');
+}
+
+export function cwdConfigPath(): string {
   return path.resolve(process.cwd(), 'config/upload-server.conf');
 }
 
-export function loadConfig(configPath?: string): {
-  codeRoot: string;
-  servers: Server[];
-  services: Service[];
-  configPath: string;
-} {
-  const resolved = configPath ?? defaultConfigPath();
-  const example = resolved.replace(/upload-server\.conf$/, 'upload-server.example.conf');
-  const file = fs.existsSync(resolved) ? resolved : example;
-  if (!fs.existsSync(file)) {
-    throw new Error(`找不到配置: ${resolved}`);
+export function configSearchPaths(explicit?: string): { label: string; path: string }[] {
+  const rows: { label: string; path: string }[] = [];
+  if (explicit?.trim()) {
+    rows.push({ label: '--config', path: path.resolve(expandPath(explicit.trim())) });
   }
+  rows.push({ label: 'cwd', path: cwdConfigPath() });
+  rows.push({ label: '~/.config/cmd-tools', path: xdgConfigPath() });
+  rows.push({ label: 'bundled example', path: bundledExampleConfigPath() });
+  return rows;
+}
+
+export function resolveConfigFile(explicit?: string): { file: string; demo: boolean } {
+  if (explicit?.trim()) {
+    const file = path.resolve(expandPath(explicit.trim()));
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
+      throw new Error(`找不到配置: ${file}`);
+    }
+    const demo = path.resolve(file) === path.resolve(bundledExampleConfigPath());
+    return { file, demo };
+  }
+
+  const cwd = cwdConfigPath();
+  if (fs.existsSync(cwd) && fs.statSync(cwd).isFile()) {
+    return { file: cwd, demo: false };
+  }
+
+  const home = xdgConfigPath();
+  if (fs.existsSync(home) && fs.statSync(home).isFile()) {
+    return { file: home, demo: false };
+  }
+
+  const example = bundledExampleConfigPath();
+  if (fs.existsSync(example) && fs.statSync(example).isFile()) {
+    return { file: example, demo: true };
+  }
+
+  const listed = configSearchPaths()
+    .map((r) => `  - ${r.label}: ${r.path}`)
+    .join('\n');
+  throw new Error(
+    `找不到配置。请复制 example 到 ./config/upload-server.conf 或 ~/.config/cmd-tools/upload-server.conf\n${listed}`,
+  );
+}
+
+function parseService(line: string, apiPreset: string): Service {
+  const parts = parseLine(line);
+  const kind = parts[2] as 'web' | 'api' | undefined;
+  if (kind === 'web') {
+    if (parts.length < 7) {
+      throw new Error(
+        `Web 服务字段不足（需要 id|label|web|projectRel|buildCommand|artifactDir|remoteMap）: ${line}`,
+      );
+    }
+    const [id, label, , projectRel, buildCommand, artifactDir, remoteMap, remoteReleaseName] = parts;
+    return {
+      id,
+      label,
+      kind,
+      projectRel,
+      buildCommand,
+      remoteMap,
+      artifactDir,
+      remoteReleaseName: remoteReleaseName || path.basename(artifactDir || 'dist'),
+    };
+  }
+  if (kind === 'api') {
+    if (parts.length >= 9) {
+      const [id, label, , projectRel, buildCommand, jarRel, moduleRel, remoteSubdir, remoteMap] = parts;
+      if (!jarRel || !moduleRel || !remoteSubdir) {
+        throw new Error(`API 服务 ${id ?? '?'} 需要非空的 jarRel、moduleRel、remoteSubdir`);
+      }
+      return {
+        id,
+        label,
+        kind,
+        projectRel,
+        buildCommand,
+        remoteMap,
+        jarRel,
+        moduleRel,
+        remoteSubdir,
+      };
+    }
+    if (parts.length === 6) {
+      const [id, label, , projectRel, shortName, remoteMap] = parts;
+      const layout = applyApiPreset(apiPreset, shortName);
+      return {
+        id,
+        label,
+        kind,
+        projectRel,
+        buildCommand: layout.buildCommand,
+        remoteMap,
+        jarRel: layout.jarRel,
+        moduleRel: layout.moduleRel,
+        remoteSubdir: layout.remoteSubdir,
+      };
+    }
+    throw new Error(
+      `API 服务字段不对: ${line}\n写全: id|label|api|projectRel|buildCommand|jarRel|moduleRel|remoteSubdir|remoteMap\n或设置 API_PRESET="yudao" 后使用短名: id|label|api|projectRel|shortName|remoteMap`,
+    );
+  }
+  throw new Error(`未知 kind "${parts[2] ?? ''}"（需要 web 或 api）: ${line}`);
+}
+
+export function loadConfig(configPath?: string): LoadedConfig {
+  const { file, demo } = resolveConfigFile(configPath);
   const src = fs.readFileSync(file, 'utf8');
-  const codeRootMatch = src.match(/CODE_ROOT="([^"]+)"/);
-  const codeRoot = expandPath(codeRootMatch?.[1] ?? process.cwd());
+  const codeRoot = expandPath(quotedValue(src, 'CODE_ROOT') ?? process.cwd());
+  const apiPreset = (quotedValue(src, 'API_PRESET') ?? '').trim();
 
   const servers = extractArrayBlock(src, 'SERVERS').map((line) => {
     const [id, label, host, user, password, roles] = parseLine(line);
@@ -103,30 +198,23 @@ export function loadConfig(configPath?: string): {
       host,
       user,
       password,
-      roles: (roles ?? '').split(',').map((r) => r.trim()).filter(Boolean),
+      roles: (roles ?? '')
+        .split(',')
+        .map((r) => r.trim())
+        .filter(Boolean),
     };
   });
 
-  const services = extractArrayBlock(src, 'SERVICES').map((line) => {
-    const parts = parseLine(line);
-    const kind = parts[2] as 'web' | 'api';
-    if (kind === 'web') {
-      const [id, label, , projectRel, buildOrShort, artifactOrMap, remoteMap] = parts;
-      return { id, label, kind, projectRel, buildOrShort, artifactOrMap, remoteMap };
-    }
-    const [id, label, , projectRel, buildOrShort, remoteMap] = parts;
-    return {
-      id,
-      label,
-      kind,
-      projectRel,
-      buildOrShort,
-      artifactOrMap: '',
-      remoteMap,
-    };
-  });
+  const services = extractArrayBlock(src, 'SERVICES').map((line) => parseService(line, apiPreset));
 
-  return { codeRoot, servers, services, configPath: file };
+  if (!servers.length) {
+    throw new Error(`配置没有 SERVERS: ${file}`);
+  }
+  if (!services.length) {
+    throw new Error(`配置没有 SERVICES: ${file}`);
+  }
+
+  return { codeRoot, servers, services, configPath: file, demo, apiPreset };
 }
 
 export function resolveRemoteMap(map: string, serverId: string): string | undefined {
@@ -140,11 +228,22 @@ export function resolveRemoteMap(map: string, serverId: string): string | undefi
   return undefined;
 }
 
-/** 展示用远端目录：web → …/dist-prod；api → …/{short}-server */
+export function webReleaseName(service: Service): string {
+  return service.remoteReleaseName || path.basename(service.artifactDir || 'dist');
+}
+
+export function apiRemoteSubdir(service: Service): string {
+  if (!service.remoteSubdir) {
+    throw new Error(`服务 ${service.id} 未配置 remoteSubdir`);
+  }
+  return service.remoteSubdir;
+}
+
+/** 展示用远端目录 */
 export function describeRemote(service: Service, serverId: string): string {
-  const base = resolveRemoteMap(service.remoteMap || service.artifactOrMap, serverId);
+  const base = resolveRemoteMap(service.remoteMap, serverId);
   if (!base) return '(未配置远端路径)';
-  if (service.kind === 'web') return `${base.replace(/\/$/, '')}/dist-prod`;
-  const layout = resolveApiLayout(service.buildOrShort);
-  return `${base.replace(/\/$/, '')}/${layout.remoteSubdir}`;
+  const root = base.replace(/\/$/, '');
+  if (service.kind === 'web') return `${root}/${webReleaseName(service)}`;
+  return `${root}/${apiRemoteSubdir(service)}`;
 }

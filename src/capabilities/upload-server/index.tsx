@@ -93,7 +93,7 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
     return (
       <ExitFrame fail>
         <Box flexDirection="column">
-          <Banner title="upload-server" />
+          <Banner title="deploy" />
           <Text color="red">配置错误: {loaded.error}</Text>
         </Box>
       </ExitFrame>
@@ -104,7 +104,7 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
     return (
       <ExitFrame fail>
         <Box flexDirection="column">
-          <Banner title="upload-server" />
+          <Banner title="deploy" />
           <Text color="red">{message || '参数错误'}</Text>
         </Box>
       </ExitFrame>
@@ -116,7 +116,7 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
   if (phase === 'server') {
     return (
       <Box flexDirection="column">
-        <Banner title="upload-server · 选择服务器" />
+        <Banner title="deploy · 选择服务器" />
         <Text dimColor>↑↓ 移动，回车确认 {dryRun ? '(dry-run)' : ''}</Text>
         <SelectInput
           items={data.servers.map((s) => ({
@@ -136,7 +136,7 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
   if (phase === 'services' && server) {
     return (
       <Box flexDirection="column">
-        <Banner title="upload-server · 选择服务" />
+        <Banner title="deploy · 选择服务" />
         <Text>
           服务器: <Text color="cyan">{server.label}</Text> ({server.host})
         </Text>
@@ -164,19 +164,24 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
   if (phase === 'confirm' && server) {
     return (
       <Box flexDirection="column">
-        <Banner title="upload-server · 确认计划" />
+        <Banner title="deploy · 确认计划" />
         <Text>
           服务器: {server.label} · {server.user}@{server.host}
         </Text>
         <Text>CODE_ROOT: {data.codeRoot}</Text>
         <Text>配置: {data.configPath}</Text>
+        {data.demo ? (
+          <Text color="yellow">正在使用包内 example.conf（只读演示）。请复制到 ./config 或 ~/.config/cmd-tools/</Text>
+        ) : null}
         {dryRun ? <Text color="yellow">模式: dry-run（跳过重构建 / scp / ssh）</Text> : null}
         <Box flexDirection="column" marginY={1}>
           <Text bold>将发版:</Text>
           {selected.map((svc) => (
             <Text key={svc.id}>
               - {svc.label} ({svc.kind}) → {describeRemote(svc, server.id)}
-              {svc.kind === 'web' ? `  build=${svc.buildOrShort}` : `  module=${svc.buildOrShort}`}
+              {svc.kind === 'web'
+                ? `  build=${svc.buildCommand}`
+                : `  jar=${svc.jarRel}`}
             </Text>
           ))}
         </Box>
@@ -209,6 +214,7 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
         services={selected}
         dryRun={dryRun}
         configPath={data.configPath}
+        demo={data.demo}
       />
     );
   }
@@ -216,7 +222,7 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
   return (
     <ExitFrame>
       <Box flexDirection="column">
-        <Banner title="upload-server" />
+        <Banner title="deploy" />
         <Text>{message || '完成'}</Text>
       </Box>
     </ExitFrame>

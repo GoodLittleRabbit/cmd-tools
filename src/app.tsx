@@ -7,7 +7,7 @@ import { UploadServerApp } from './capabilities/upload-server/index.js';
 type Item = { label: string; value: string };
 
 const items: Item[] = [
-  { label: 'upload-server  ·  交互发版（web/api）', value: 'upload-server' },
+  { label: 'deploy  ·  交互发版（web/api）', value: 'upload-server' },
   { label: '（更多能力即将加入）', value: 'soon' },
   { label: '退出', value: 'exit' },
 ];

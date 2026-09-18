@@ -1,11 +1,17 @@
 {
   "name": "cmd-tools",
   "version": "0.1.0",
-  "description": "Ink + React + TypeScript terminal toolkit (upload-server first)",
+  "description": "Generic Ink CLI to build, pack, and deploy web/api artifacts over SSH",
   "type": "module",
   "bin": {
     "cmd-tools": "./bin/cmd-tools.js"
   },
+  "files": [
+    "dist",
+    "bin",
+    "config",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/cli.js",

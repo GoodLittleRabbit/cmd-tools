@@ -129,9 +129,10 @@ type Props = {
   services: Service[];
   dryRun: boolean;
   configPath?: string;
+  demo?: boolean;
 };
 
-export function DeployProgress({ codeRoot, server, services, dryRun, configPath }: Props) {
+export function DeployProgress({ codeRoot, server, services, dryRun, configPath, demo }: Props) {
   const { exit } = useApp();
   const [state, dispatch] = useReducer(reducer, services, initState);
 
@@ -178,9 +179,9 @@ export function DeployProgress({ codeRoot, server, services, dryRun, configPath 
   const barColor = state.finished ? (state.ok ? 'green' : 'red') : 'cyan';
   const title = state.finished
     ? state.ok
-      ? 'upload-server · 完成'
-      : 'upload-server · 失败'
-    : 'upload-server · 发版中';
+      ? 'deploy · 完成'
+      : 'deploy · 失败'
+    : 'deploy · 发版中';
 
   const paddedLogs = Array.from({ length: LOG_LINES }, (_, i) => {
     const offset = state.logs.length - LOG_LINES;
@@ -196,6 +197,9 @@ export function DeployProgress({ codeRoot, server, services, dryRun, configPath 
         服务器: <Text color="cyan">{server.label}</Text>  {server.user}@{server.host}
       </Text>
       {configPath ? <Text dimColor>配置: {configPath}</Text> : null}
+      {demo ? (
+        <Text color="yellow">正在使用包内 example.conf（只读演示）。请复制到 ./config 或 ~/.config/cmd-tools/</Text>
+      ) : null}
       {dryRun ? (
         <Text color="yellow">模式: dry-run  ·  不执行 scp / ssh，跳过重构建</Text>
       ) : (

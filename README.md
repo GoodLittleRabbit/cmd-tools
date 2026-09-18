@@ -1,46 +1,105 @@
 # cmd-tools
 
-Ink + React + TypeScript 终端工具集。首个能力：`upload-server`（交互发版）。
+通用终端发版工具（Ink + React + TypeScript）。按**你自己的配置**构建、打包 web/api 产物，再 `scp` / `ssh` 传到服务器。不绑定某个业务仓库；别人只改 conf、不用改源码。
 
-发版逻辑全部在本仓库内完成（读配置、本地构建/打包、`scp`、`ssh` 远端解压）。**不会**调用 `kfi-cloud-admin/scripts/upload-dist.sh` 或 `kfi-cloud-api/.vscode/upload-jars-to-devtest.sh`；那两个仓库只作为 `CODE_ROOT` 下的产物源目录。
+`cmd-tools deploy` 与 `cmd-tools upload-server` 等价。
 
-## 快速开始
+发版逻辑全部在本仓库内完成，**不会**去调用业务项目里的上传脚本。`CODE_ROOT` 下的目录只当产物源。
+
+## 安装
+
+本地（从源码）：
 
 ```bash
+git clone <this-repo> cmd-tools
 cd cmd-tools
 pnpm install
 pnpm build
-pnpm link --global   # 可选
-cmd-tools --help
-cmd-tools upload-server --dry-run
+node dist/cli.js --help
+```
+
+全局命令：
+
+```bash
+pnpm link --global
+cmd-tools deploy --help
+```
+
+npx（发布到 npm 之后，或指向 Git 仓库）：
+
+```bash
+npx cmd-tools deploy --dry-run
+# 或尚未发布时：
+npx github:<owner>/cmd-tools deploy --dry-run
 ```
 
 开发：
 
 ```bash
-pnpm dev -- upload-server --dry-run
+pnpm dev -- deploy --dry-run
 ```
 
-## 配置
+## 写自己的配置
 
-1. 复制 `config/upload-server.example.conf` → `config/upload-server.conf`
-2. 填写真实密码、`CODE_ROOT`、远端路径
-3. `upload-server.conf` 已 gitignore，不要提交密钥
-
-密码只从配置文件读取，代码里不会硬编码。SSH 使用 `StrictHostKeyChecking=accept-new`；有密码时优先 `sshpass -e`，否则 `expect`。
-
-## upload-server
-
-交互：选服务器 → **空格多选**服务 → 确认。确认后进入带进度条的发版 UI（构建 → 打包 → 上传 → 远端）。
+包内 `config/upload-server.example.conf` 是**只读演示**（占位符，不是真实环境）。复制后填写路径、主机、密码：
 
 ```bash
-cmd-tools upload-server
-cmd-tools upload-server --dry-run
-cmd-tools upload-server --dry-run -s test-251 -p admin-web
-cmd-tools upload-server -s test-251 -p admin-web,gateway
+# 方案 A：当前工作目录（适合每个产品仓一份配置）
+mkdir -p config
+cp /path/to/cmd-tools/config/upload-server.example.conf config/upload-server.conf
+
+# 方案 B：用户目录（适合本机多项目共用）
+mkdir -p ~/.config/cmd-tools
+cp /path/to/cmd-tools/config/upload-server.example.conf ~/.config/cmd-tools/upload-server.conf
 ```
 
-同时传入 `-s` 与 `-p` 时跳过选择/确认，直接进入发版进度（适合演练与脚本）。
+查找顺序：
+
+1. `--config` / `-c`
+2. `./config/upload-server.conf`（cwd）
+3. `~/.config/cmd-tools/upload-server.conf`
+4. 包内 example（只读演示）
+
+`config/upload-server.conf` 已 gitignore。密码只从配置读取，不要写进源码或提交到 git。
+
+SSH：`StrictHostKeyChecking=accept-new`；有密码时优先 `sshpass -e`，否则 `expect`。空密码或 `CHANGE_ME` 则尝试密钥登录。
+
+### 字段说明
+
+Web 行：
+
+```
+id|label|web|projectRel|buildCommand|artifactDir|remoteMap
+```
+
+- 在 `CODE_ROOT/projectRel` 执行 `buildCommand`
+- 校验 `artifactDir/index.html`
+- 打成 `{artifactDir 目录名}.tgz` 上传，远端备份同名目录后解压
+
+API 行（推荐写全，任意项目结构）：
+
+```
+id|label|api|projectRel|buildCommand|jarRel|moduleRel|remoteSubdir|remoteMap
+```
+
+可选 `API_PRESET="yudao"`：才允许把 API 写成短名（`gateway` / `system` / …），并由预设补全 jar/module/subdir。**预设默认关闭**；写全的字段始终覆盖预设。
+
+`remoteMap`：`serverId:/remote/path`，多服务器用 `;;` 分隔。
+
+## 使用
+
+交互：选服务器 → **空格多选**服务 → 确认。之后是进度条 UI（构建 → 打包 → 上传 → 远端）。
+
+```bash
+cmd-tools deploy
+cmd-tools deploy --dry-run
+cmd-tools deploy --dry-run -s dev -p web-app
+cmd-tools deploy -s dev -p web-app,api-app
+cmd-tools deploy --config ~/my.conf --dry-run
+cmd-tools upload-server --dry-run   # 与 deploy 相同
+```
+
+同时传入 `-s` 与 `-p` 时跳过选择/确认，直接进入发版进度。
 
 | 选项 | 说明 |
 | --- | --- |
@@ -48,17 +107,3 @@ cmd-tools upload-server -s test-251 -p admin-web,gateway
 | `--server`, `-s` | 服务器 id |
 | `--services`, `-p` | 服务 id，逗号分隔 |
 | `--config`, `-c` | 配置文件路径 |
-
-### Web (`kind=web`)
-
-- 在 `CODE_ROOT/projectRel` 执行 `buildOrShort`（如 `pnpm build-prod`）
-- 校验 `artifactDir/index.html`
-- `tar.gz` 打包（`COPYFILE_DISABLE=1`，优先 `tar --no-xattrs`）
-- `scp` 到 `user@host:remote/dist-prod.tgz`
-- `ssh`：备份旧 `dist-prod` 为时间戳目录 → 解压 → 删除 tgz
-
-### API (`kind=api`)
-
-- 短名映射 jar / Maven 模块 / 远端子目录（yudao 布局：`gateway` → `gateway-server`，`system` → `system-server`，以及 `ai` `infra` `llm` `goals` `calendar` `dataease` `product` `mail` `kfifilemanager`）
-- 可选：`mvn -pl <module> -am -DskipTests package`
-- `scp` jar，以及模块目录下可选的 `Dockerfile` / `start.sh` / `.dockerignore`
