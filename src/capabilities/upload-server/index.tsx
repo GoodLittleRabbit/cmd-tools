@@ -1,11 +1,12 @@
-import React, { useMemo, useState } from 'react';
-import { Box, Text } from 'ink';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Box, Text, useApp } from 'ink';
 import SelectInput from 'ink-select-input';
 import { Banner } from '../../ui/Banner.js';
+import { DeployProgress } from '../../ui/DeployProgress.js';
 import { SpaceMultiSelect } from '../../ui/SpaceMultiSelect.js';
 import {
+  describeRemote,
   loadConfig,
-  resolveRemoteMap,
   type Server,
   type Service,
 } from './config.js';
@@ -17,7 +18,41 @@ type Props = {
   configPath?: string;
 };
 
-type Phase = 'server' | 'services' | 'confirm' | 'done' | 'error';
+type Phase = 'server' | 'services' | 'confirm' | 'deploy' | 'done' | 'error';
+
+function selectionError(
+  servers: Server[],
+  services: Service[],
+  serverId?: string,
+  serviceIds?: string[],
+): string | null {
+  if (serverId) {
+    const server = servers.find((s) => s.id === serverId);
+    if (!server) return `未知服务器 id: ${serverId}`;
+    if (serviceIds?.length) {
+      const unknown = serviceIds.filter((id) => !services.some((s) => s.id === id));
+      if (unknown.length) return `未知服务 id: ${unknown.join(', ')}`;
+      const mismatch = serviceIds.filter((id) => {
+        const svc = services.find((s) => s.id === id);
+        return svc ? !server.roles.includes(svc.kind) : false;
+      });
+      if (mismatch.length) {
+        return `服务 ${mismatch.join(', ')} 与服务器角色 [${server.roles.join(',')}] 不匹配`;
+      }
+    }
+  }
+  return null;
+}
+
+function ExitFrame({ children, fail }: { children: React.ReactNode; fail?: boolean }) {
+  const { exit } = useApp();
+  useEffect(() => {
+    if (fail) process.exitCode = 1;
+    const t = setTimeout(() => exit(fail ? new Error('failed') : undefined), 40);
+    return () => clearTimeout(t);
+  }, [exit, fail]);
+  return <>{children}</>;
+}
 
 export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPath }: Props) {
   const loaded = useMemo(() => {
@@ -28,9 +63,13 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
     }
   }, [configPath]);
 
+  const selectErr = loaded.ok
+    ? selectionError(loaded.data.servers, loaded.data.services, serverId, serviceIds)
+    : null;
+
   const [phase, setPhase] = useState<Phase>(() => {
-    if (!loaded.ok) return 'error';
-    if (serverId && serviceIds?.length) return 'confirm';
+    if (!loaded.ok || selectErr) return 'error';
+    if (serverId && serviceIds?.length) return 'deploy';
     if (serverId) return 'services';
     return 'server';
   });
@@ -42,22 +81,37 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
     if (!loaded.ok || !serviceIds?.length) return [];
     return loaded.data.services.filter((s) => serviceIds.includes(s.id));
   });
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(selectErr ?? '');
+
+  const visibleServices = useMemo(() => {
+    if (!loaded.ok) return [];
+    if (!server) return loaded.data.services;
+    return loaded.data.services.filter((svc) => server.roles.includes(svc.kind));
+  }, [loaded, server]);
 
   if (!loaded.ok) {
     return (
-      <Box flexDirection="column">
-        <Banner title="upload-server" />
-        <Text color="red">配置错误: {loaded.error}</Text>
-      </Box>
+      <ExitFrame fail>
+        <Box flexDirection="column">
+          <Banner title="upload-server" />
+          <Text color="red">配置错误: {loaded.error}</Text>
+        </Box>
+      </ExitFrame>
+    );
+  }
+
+  if (phase === 'error') {
+    return (
+      <ExitFrame fail>
+        <Box flexDirection="column">
+          <Banner title="upload-server" />
+          <Text color="red">{message || '参数错误'}</Text>
+        </Box>
+      </ExitFrame>
     );
   }
 
   const { data } = loaded;
-  const visibleServices = useMemo(() => {
-    if (!server) return data.services;
-    return data.services.filter((svc) => server.roles.includes(svc.kind));
-  }, [data.services, server]);
 
   if (phase === 'server') {
     return (
@@ -108,12 +162,6 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
   }
 
   if (phase === 'confirm' && server) {
-    const plan = selected.map((svc) => {
-      const remote =
-        resolveRemoteMap(svc.remoteMap || svc.artifactOrMap, server.id) ?? '(未配置远端路径)';
-      return { svc, remote };
-    });
-
     return (
       <Box flexDirection="column">
         <Banner title="upload-server · 确认计划" />
@@ -122,12 +170,12 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
         </Text>
         <Text>CODE_ROOT: {data.codeRoot}</Text>
         <Text>配置: {data.configPath}</Text>
-        {dryRun ? <Text color="yellow">模式: dry-run（不会实际上传）</Text> : null}
+        {dryRun ? <Text color="yellow">模式: dry-run（跳过重构建 / scp / ssh）</Text> : null}
         <Box flexDirection="column" marginY={1}>
           <Text bold>将发版:</Text>
-          {plan.map(({ svc, remote }) => (
+          {selected.map((svc) => (
             <Text key={svc.id}>
-              - {svc.label} ({svc.kind}) → {remote}
+              - {svc.label} ({svc.kind}) → {describeRemote(svc, server.id)}
               {svc.kind === 'web' ? `  build=${svc.buildOrShort}` : `  module=${svc.buildOrShort}`}
             </Text>
           ))}
@@ -135,7 +183,7 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
         <SelectInput
           items={[
             {
-              label: dryRun ? '打印计划并结束' : '确认执行（MVP：等同 dry-run 计划输出）',
+              label: dryRun ? '开始演练（dry-run）' : '确认执行发版',
               value: 'go',
             },
             { label: '取消', value: 'cancel' },
@@ -146,27 +194,31 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
               setPhase('done');
               return;
             }
-            const lines = [
-              '[cmd-tools upload-server] plan',
-              `server=${server.id} ${server.user}@${server.host}`,
-              ...plan.map(
-                ({ svc, remote }) =>
-                  `service=${svc.id} kind=${svc.kind} project=${data.codeRoot}/${svc.projectRel} remote=${remote}`,
-              ),
-              dryRun ? 'dry-run=true (no upload)' : 'mvp=true (upload hooks TODO; plan only)',
-            ];
-            setMessage(lines.join('\n'));
-            setPhase('done');
+            setPhase('deploy');
           }}
         />
       </Box>
     );
   }
 
+  if (phase === 'deploy' && server && selected.length) {
+    return (
+      <DeployProgress
+        codeRoot={data.codeRoot}
+        server={server}
+        services={selected}
+        dryRun={dryRun}
+        configPath={data.configPath}
+      />
+    );
+  }
+
   return (
-    <Box flexDirection="column">
-      <Banner title="upload-server" />
-      <Text>{message || '完成'}</Text>
-    </Box>
+    <ExitFrame>
+      <Box flexDirection="column">
+        <Banner title="upload-server" />
+        <Text>{message || '完成'}</Text>
+      </Box>
+    </ExitFrame>
   );
 }

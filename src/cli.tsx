@@ -12,7 +12,7 @@ const cli = meow(
     $ cmd-tools upload-server [options]
 
   Options
-    --dry-run, -n       只打印计划
+    --dry-run, -n       演练：同样进度 UI，跳过重构建 / scp / ssh
     --server, -s        服务器 id
     --services, -p      服务 id，逗号分隔
     --config, -c        配置文件路径

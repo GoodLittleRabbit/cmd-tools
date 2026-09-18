@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,6 +21,42 @@ export type Service = {
   artifactOrMap: string;
   remoteMap: string;
 };
+
+/** yudao 布局：gateway 特判，其余 short → yudao-module-{short}-server */
+export type ApiLayout = {
+  short: string;
+  jarRel: string;
+  moduleRel: string;
+  remoteSubdir: string;
+};
+
+const API_SPECIAL: Record<string, Omit<ApiLayout, 'short'>> = {
+  gateway: {
+    jarRel: 'yudao-gateway/target/yudao-gateway.jar',
+    moduleRel: 'yudao-gateway',
+    remoteSubdir: 'gateway-server',
+  },
+};
+
+/** 已知短名（其余走通用 *-server 规则）：system, ai, infra, llm, goals, calendar, dataease, product, mail, kfifilemanager */
+export function resolveApiLayout(short: string): ApiLayout {
+  const key = short.trim();
+  const special = API_SPECIAL[key];
+  if (special) return { short: key, ...special };
+  return {
+    short: key,
+    jarRel: `yudao-module-${key}/yudao-module-${key}-server/target/yudao-module-${key}-server.jar`,
+    moduleRel: `yudao-module-${key}/yudao-module-${key}-server`,
+    remoteSubdir: `${key}-server`,
+  };
+}
+
+function expandPath(p: string): string {
+  if (!p) return p;
+  if (p === '~') return os.homedir();
+  if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
+  return p;
+}
 
 function parseLine(line: string): string[] {
   return line.split('|').map((s) => s.trim());
@@ -56,7 +93,7 @@ export function loadConfig(configPath?: string): {
   }
   const src = fs.readFileSync(file, 'utf8');
   const codeRootMatch = src.match(/CODE_ROOT="([^"]+)"/);
-  const codeRoot = codeRootMatch?.[1] ?? process.cwd();
+  const codeRoot = expandPath(codeRootMatch?.[1] ?? process.cwd());
 
   const servers = extractArrayBlock(src, 'SERVERS').map((line) => {
     const [id, label, host, user, password, roles] = parseLine(line);
@@ -101,4 +138,13 @@ export function resolveRemoteMap(map: string, serverId: string): string | undefi
     if (id === serverId) return p;
   }
   return undefined;
+}
+
+/** 展示用远端目录：web → …/dist-prod；api → …/{short}-server */
+export function describeRemote(service: Service, serverId: string): string {
+  const base = resolveRemoteMap(service.remoteMap || service.artifactOrMap, serverId);
+  if (!base) return '(未配置远端路径)';
+  if (service.kind === 'web') return `${base.replace(/\/$/, '')}/dist-prod`;
+  const layout = resolveApiLayout(service.buildOrShort);
+  return `${base.replace(/\/$/, '')}/${layout.remoteSubdir}`;
 }
