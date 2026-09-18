@@ -6,10 +6,12 @@ import { DeployProgress } from '../../ui/DeployProgress.js';
 import { SpaceMultiSelect } from '../../ui/SpaceMultiSelect.js';
 import {
   describeRemote,
+  findUserConfig,
   loadConfig,
   type Server,
   type Service,
 } from './config.js';
+import { missingUserConfigMessage } from './init.js';
 
 type Props = {
   dryRun?: boolean;
@@ -88,6 +90,17 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
     if (!server) return loaded.data.services;
     return loaded.data.services.filter((svc) => server.roles.includes(svc.kind));
   }, [loaded, server]);
+
+  if (!dryRun && !findUserConfig(configPath)) {
+    return (
+      <ExitFrame fail>
+        <Box flexDirection="column">
+          <Banner title="upload-server" />
+          <Text color="red">{missingUserConfigMessage()}</Text>
+        </Box>
+      </ExitFrame>
+    );
+  }
 
   if (!loaded.ok) {
     return (

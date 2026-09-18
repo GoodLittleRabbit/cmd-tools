@@ -39,7 +39,7 @@ export type LoadedConfig = {
   apiPreset: string;
 };
 
-function expandPath(p: string): string {
+export function expandPath(p: string): string {
   if (!p) return p;
   if (p === '~') return os.homedir();
   if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
@@ -77,6 +77,23 @@ export function xdgConfigPath(): string {
 
 export function cwdConfigPath(): string {
   return path.resolve(process.cwd(), 'config/upload-server.conf');
+}
+
+export function packageRoot(): string {
+  return path.dirname(path.dirname(bundledExampleConfigPath()));
+}
+
+/** 用户 conf（不含包内 example）。没有则 undefined。 */
+export function findUserConfig(explicit?: string): string | undefined {
+  if (explicit?.trim()) {
+    const file = path.resolve(expandPath(explicit.trim()));
+    if (fs.existsSync(file) && fs.statSync(file).isFile()) return file;
+    return undefined;
+  }
+  for (const p of [cwdConfigPath(), xdgConfigPath()]) {
+    if (fs.existsSync(p) && fs.statSync(p).isFile()) return p;
+  }
+  return undefined;
 }
 
 export function configSearchPaths(explicit?: string): { label: string; path: string }[] {
