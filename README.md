@@ -1,8 +1,8 @@
 # cmd-tools
 
-通用终端发版工具（Ink + React + TypeScript）。按**你自己的配置**构建、打包 web/api 产物，再 `scp` / `ssh` 传到服务器。不绑定某个业务仓库；别人只改 conf、不用改源码。
+通用终端发版工具（Ink + React + TypeScript）。主命令：`cmd-tools upload-server`。
 
-`cmd-tools deploy` 与 `cmd-tools upload-server` 等价。
+按**你自己的配置**构建、打包 web/api 产物，再 `scp` / `ssh` 传到服务器。不绑定某个业务仓库；别人只改 conf、不用改源码。
 
 发版逻辑全部在本仓库内完成，**不会**去调用业务项目里的上传脚本。`CODE_ROOT` 下的目录只当产物源。
 
@@ -22,21 +22,21 @@ node dist/cli.js --help
 
 ```bash
 pnpm link --global
-cmd-tools deploy --help
+cmd-tools upload-server --help
 ```
 
 npx（发布到 npm 之后，或指向 Git 仓库）：
 
 ```bash
-npx cmd-tools deploy --dry-run
+npx cmd-tools upload-server --dry-run
 # 或尚未发布时：
-npx github:<owner>/cmd-tools deploy --dry-run
+npx github:<owner>/cmd-tools upload-server --dry-run
 ```
 
 开发：
 
 ```bash
-pnpm dev -- deploy --dry-run
+pnpm dev -- upload-server --dry-run
 ```
 
 ## 写自己的配置
@@ -91,12 +91,11 @@ id|label|api|projectRel|buildCommand|jarRel|moduleRel|remoteSubdir|remoteMap
 交互：选服务器 → **空格多选**服务 → 确认。之后是进度条 UI（构建 → 打包 → 上传 → 远端）。
 
 ```bash
-cmd-tools deploy
-cmd-tools deploy --dry-run
-cmd-tools deploy --dry-run -s dev -p web-app
-cmd-tools deploy -s dev -p web-app,api-app
-cmd-tools deploy --config ~/my.conf --dry-run
-cmd-tools upload-server --dry-run   # 与 deploy 相同
+cmd-tools upload-server
+cmd-tools upload-server --dry-run
+cmd-tools upload-server --dry-run -s dev -p web-app
+cmd-tools upload-server -s dev -p web-app,api-app
+cmd-tools upload-server --config ~/my.conf --dry-run
 ```
 
 同时传入 `-s` 与 `-p` 时跳过选择/确认，直接进入发版进度。

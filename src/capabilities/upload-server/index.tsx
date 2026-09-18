@@ -93,7 +93,7 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
     return (
       <ExitFrame fail>
         <Box flexDirection="column">
-          <Banner title="deploy" />
+          <Banner title="upload-server" />
           <Text color="red">配置错误: {loaded.error}</Text>
         </Box>
       </ExitFrame>
@@ -104,7 +104,7 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
     return (
       <ExitFrame fail>
         <Box flexDirection="column">
-          <Banner title="deploy" />
+          <Banner title="upload-server" />
           <Text color="red">{message || '参数错误'}</Text>
         </Box>
       </ExitFrame>
@@ -116,7 +116,7 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
   if (phase === 'server') {
     return (
       <Box flexDirection="column">
-        <Banner title="deploy · 选择服务器" />
+        <Banner title="upload-server · 选择服务器" />
         <Text dimColor>↑↓ 移动，回车确认 {dryRun ? '(dry-run)' : ''}</Text>
         <SelectInput
           items={data.servers.map((s) => ({
@@ -136,7 +136,7 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
   if (phase === 'services' && server) {
     return (
       <Box flexDirection="column">
-        <Banner title="deploy · 选择服务" />
+        <Banner title="upload-server · 选择服务" />
         <Text>
           服务器: <Text color="cyan">{server.label}</Text> ({server.host})
         </Text>
@@ -164,7 +164,7 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
   if (phase === 'confirm' && server) {
     return (
       <Box flexDirection="column">
-        <Banner title="deploy · 确认计划" />
+        <Banner title="upload-server · 确认计划" />
         <Text>
           服务器: {server.label} · {server.user}@{server.host}
         </Text>
@@ -222,7 +222,7 @@ export function UploadServerApp({ dryRun = false, serverId, serviceIds, configPa
   return (
     <ExitFrame>
       <Box flexDirection="column">
-        <Banner title="deploy" />
+        <Banner title="upload-server" />
         <Text>{message || '完成'}</Text>
       </Box>
     </ExitFrame>

@@ -9,11 +9,9 @@ const cli = meow(
   `
   用法
     $ cmd-tools
-    $ cmd-tools deploy [options]
     $ cmd-tools upload-server [options]
 
   通用发版工具：按你的配置构建、打包并把 web/api 产物上传到服务器。
-  upload-server 与 deploy 等价。
 
   配置查找顺序
     1. --config / -c
@@ -43,7 +41,8 @@ const cmd = cli.input[0];
 
 if (!cmd) {
   render(<App />);
-} else if (cmd === 'deploy' || cmd === 'upload-server') {
+} else if (cmd === 'upload-server' || cmd === 'deploy') {
+  // `deploy` is an undocumented compatibility alias
   render(
     <UploadServerApp
       dryRun={cli.flags.dryRun}
@@ -53,6 +52,6 @@ if (!cmd) {
     />,
   );
 } else {
-  console.error(`未知命令: ${cmd}（可用: deploy, upload-server）`);
+  console.error(`未知命令: ${cmd}（可用: upload-server）`);
   cli.showHelp(1);
 }

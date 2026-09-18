@@ -179,9 +179,9 @@ export function DeployProgress({ codeRoot, server, services, dryRun, configPath,
   const barColor = state.finished ? (state.ok ? 'green' : 'red') : 'cyan';
   const title = state.finished
     ? state.ok
-      ? 'deploy · 完成'
-      : 'deploy · 失败'
-    : 'deploy · 发版中';
+      ? 'upload-server · 完成'
+      : 'upload-server · 失败'
+    : 'upload-server · 发版中';
 
   const paddedLogs = Array.from({ length: LOG_LINES }, (_, i) => {
     const offset = state.logs.length - LOG_LINES;
