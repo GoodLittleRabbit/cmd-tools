@@ -1,12 +1,17 @@
-import React from 'react';
 import { Box, Text } from 'ink';
+import { colors } from './theme.js';
 
-export function Banner({ title }: { title: string }) {
+export function Banner({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <Box borderStyle="round" borderColor="magenta" paddingX={2} marginY={1}>
-      <Text bold color="magenta">
-        {title}
+    <Box flexDirection="column" marginBottom={1}>
+      <Text color={colors.accent} bold>
+        ◆ {title}
       </Text>
+      {subtitle ? (
+        <Box marginTop={1}>
+          <Text color={colors.muted}>{subtitle}</Text>
+        </Box>
+      ) : null}
     </Box>
   );
 }

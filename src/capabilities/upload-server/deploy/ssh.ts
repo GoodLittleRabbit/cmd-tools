@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { Server } from '../config.js';
-import { hasCommand, runCommand, type RunOpts } from './exec.js';
+import { hasCommand, runCommand, shQuote, type RunOpts } from './exec.js';
 
 const SSH_OPTS = [
   '-o',
@@ -55,6 +55,15 @@ function dest(server: Server, remotePath: string): string {
   return `${server.user}@${server.host}:${remotePath}`;
 }
 
+/** ssh uses -p, scp uses -P */
+function portArgs(server: Server, kind: 'ssh' | 'scp'): string[] {
+  const port = server.port && server.port !== 22 ? server.port : server.port;
+  // always pass explicitly when set; default 22 still fine to omit
+  if (!server.port || server.port === 22) return [];
+  return kind === 'ssh' ? ['-p', String(server.port)] : ['-P', String(server.port)];
+}
+
+
 let expectScriptPath: string | undefined;
 
 function expectFile(): string {
@@ -101,7 +110,7 @@ export async function scpFile(opts: {
   if (!fs.existsSync(opts.localPath)) {
     throw new Error(`本地文件不存在: ${opts.localPath}`);
   }
-  const argv = ['scp', ...SSH_OPTS, opts.localPath, dest(opts.server, opts.remotePath)];
+  const argv = ['scp', ...SSH_OPTS, ...portArgs(opts.server, 'scp'), opts.localPath, dest(opts.server, opts.remotePath)];
   await runAuth(opts.server, argv, opts.onLog);
 }
 
@@ -109,7 +118,72 @@ export async function sshExec(opts: {
   server: Server;
   command: string;
   onLog?: (line: string) => void;
+  /** 与 upload-jars 一致：sudo 管道需要 -tt，避免远端把命令拆碎 */
+  forceTty?: boolean;
 }): Promise<void> {
-  const argv = ['ssh', ...SSH_OPTS, `${opts.server.user}@${opts.server.host}`, 'bash', '-lc', opts.command];
+  // 整段 command 作为 ssh 的单一远端参数（不要拆成 bash -lc + 多段，expect/argv 易截断）
+  const argv = [
+    'ssh',
+    ...SSH_OPTS,
+    ...(opts.forceTty ? ['-tt'] : []),
+    ...portArgs(opts.server, 'ssh'),
+    `${opts.server.user}@${opts.server.host}`,
+    opts.command,
+  ];
   await runAuth(opts.server, argv, opts.onLog);
+}
+
+/**
+ * 与 kfi upload-jars 一致：先 scp 到 /tmp，再 sudo mv 到工作目录
+ * （kfi 用户通常不能直接写 api 服务目录）。
+ */
+export async function scpViaTmpSudo(opts: {
+  server: Server;
+  localPath: string;
+  /** 远端最终完整路径，含文件名 */
+  remoteFinalPath: string;
+  onLog?: (line: string) => void;
+  /** sudo mv 成功后追加的远端命令（已在同一 sudo sh -c 内） */
+  afterMove?: string;
+}): Promise<void> {
+  const password = effectivePassword(opts.server);
+  if (!password) {
+    throw new Error(
+      '后端发版需要服务器密码：远端工作目录须 sudo 写入（与 upload-jars-to-devtest.sh 相同）',
+    );
+  }
+  if (!fs.existsSync(opts.localPath)) {
+    throw new Error(`本地文件不存在: ${opts.localPath}`);
+  }
+  const base = path.basename(opts.localPath);
+  const tmp = `/tmp/cmd-tools-upload-${Date.now()}-${process.pid}-${base}`;
+  const finalDir = path.posix.dirname(opts.remoteFinalPath);
+
+  opts.onLog?.(`scp ${base} → ${opts.server.user}@${opts.server.host}:${tmp}`);
+  await scpFile({
+    server: opts.server,
+    localPath: opts.localPath,
+    remotePath: tmp,
+    onLog: opts.onLog,
+  });
+
+  let sudoBody =
+    `mkdir -p ${shQuote(finalDir)} && ` +
+    `rm -f -- ${shQuote(opts.remoteFinalPath)} && ` +
+    `mv -f ${shQuote(tmp)} ${shQuote(opts.remoteFinalPath)}`;
+  if (opts.afterMove?.trim()) {
+    sudoBody += ` && ${opts.afterMove.trim()}`;
+  }
+
+  // echo 管道喂 sudo，避免登录密码与 sudo 密码双 expect 打架
+  const remoteCmd =
+    `echo ${shQuote(password)} | sudo -S -p '' sh -c ${shQuote(sudoBody)}`;
+
+  opts.onLog?.(`sudo mv ${tmp} → ${opts.remoteFinalPath}`);
+  await sshExec({
+    server: opts.server,
+    command: remoteCmd,
+    onLog: opts.onLog,
+    forceTty: true,
+  });
 }

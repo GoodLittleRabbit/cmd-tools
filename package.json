@@ -1,21 +1,16 @@
 {
   "name": "cmd-tools",
   "version": "0.1.0",
-  "description": "Generic Ink CLI to build, pack, and deploy web/api artifacts over SSH",
+  "description": "cmd-tools — Ink TUI to build, pack, and deploy over SSH",
   "type": "module",
+  "private": true,
   "bin": {
     "cmd-tools": "./bin/cmd-tools.js"
   },
-  "files": [
-    "dist",
-    "bin",
-    "config",
-    "README.md"
-  ],
   "scripts": {
+    "dev": "tsx src/cli.tsx",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/cli.js",
-    "dev": "tsx src/cli.tsx",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "engines": {
@@ -23,14 +18,12 @@
   },
   "dependencies": {
     "ink": "^5.2.1",
-    "ink-select-input": "^6.0.0",
     "ink-spinner": "^5.0.0",
-    "ink-text-input": "^6.0.0",
     "meow": "^13.2.0",
     "react": "^18.3.1"
   },
   "devDependencies": {
-    "@types/node": "^22.13.10",
+    "@types/node": "^22.20.3",
     "@types/react": "^18.3.18",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"

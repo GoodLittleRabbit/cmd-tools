@@ -1,15 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { apiRemoteSubdir, resolveRemoteMap, type Server, type Service } from '../config.js';
+import { resolveDest, type Server, type Package } from '../config.js';
 import { formatBytes, runShell, shQuote } from './exec.js';
-import { scpFile, sshExec } from './ssh.js';
+import { effectivePassword, scpViaTmpSudo, sshExec } from './ssh.js';
+import { runAfterHooks } from './after.js';
 import { runStep } from './step.js';
 import type { DeployContext } from './types.js';
 
 const EXTRA_FILES = ['Dockerfile', 'start.sh', '.dockerignore'] as const;
 
-function findJar(project: string, jarRel: string): string {
-  const exact = path.join(project, jarRel);
+function findJar(project: string, jar: string): string {
+  const exact = path.join(project, jar);
   if (fs.existsSync(exact)) return exact;
   const dir = path.dirname(exact);
   const base = path.basename(exact, '.jar');
@@ -25,6 +26,8 @@ function findJar(project: string, jarRel: string): string {
         !f.includes('-original'),
     );
   if (matches.length === 1) return path.join(dir, matches[0]!);
+  const preferred = matches.find((f) => f === `${base}.jar`) || matches[0];
+  if (preferred) return path.join(dir, preferred);
   return exact;
 }
 
@@ -35,23 +38,23 @@ function collectExtras(moduleDir: string): string[] {
 export async function deployApi(opts: {
   ctx: DeployContext;
   server: Server;
-  service: Service;
+  pkg: Package;
 }): Promise<void> {
-  const { ctx, server, service } = opts;
-  const project = path.join(ctx.codeRoot, service.projectRel);
-  if (!service.jarRel || !service.moduleRel) {
-    throw new Error(`服务 ${service.id} 未配置 jarRel/moduleRel（请在 conf 写全，或使用 API_PRESET 短名）`);
+  const { ctx, server, pkg } = opts;
+  const project = path.join(ctx.rootPath, pkg.dir);
+  if (!pkg.jar || !pkg.module) {
+    throw new Error(
+      `服务 ${pkg.name} 未配置 jar/module（可在配置写全，或依赖 detect 自动探测）`,
+    );
   }
-  const remoteRoot = resolveRemoteMap(service.remoteMap, server.id);
-  if (!remoteRoot) {
-    throw new Error(`未配置远端路径: ${service.id} @ ${server.id}`);
+  const remoteDir = resolveDest(pkg, server.name)?.replace(/\/$/, '');
+  if (!remoteDir) {
+    throw new Error(`未配置 dest: ${pkg.name} @ ${server.name}`);
   }
-  const remoteDir = `${remoteRoot.replace(/\/$/, '')}/${apiRemoteSubdir(service)}`;
-  const jarAbs = findJar(project, service.jarRel);
-  const moduleDir = path.join(project, service.moduleRel);
+  const moduleDir = path.join(project, pkg.module);
 
   await runStep(ctx, 'build', async () => {
-    const cmd = service.buildCommand?.trim();
+    const cmd = pkg.build?.trim();
     if (!cmd) {
       ctx.log('无构建命令，跳过');
       return;
@@ -67,13 +70,16 @@ export async function deployApi(opts: {
     await runShell(cmd, { cwd: project, onLog: ctx.log });
   });
 
+  let jarAbs = '';
   let extras: string[] = [];
+
   await runStep(ctx, 'pack', async () => {
     if (ctx.dryRun) {
-      ctx.log(`[dry-run] jar ${service.jarRel} → ${remoteDir}/`);
+      ctx.log(`[dry-run] jar ${pkg.jar} → ${remoteDir}/ （经 /tmp + sudo mv）`);
       ctx.log('[dry-run] extras Dockerfile / start.sh / .dockerignore（若存在）');
       return;
     }
+    jarAbs = findJar(project, pkg.jar!);
     if (!fs.existsSync(jarAbs)) {
       throw new Error(`缺少 jar: ${jarAbs}`);
     }
@@ -84,39 +90,60 @@ export async function deployApi(opts: {
   });
 
   await runStep(ctx, 'upload', async () => {
-    const destHost = `${server.user}@${server.host}:${remoteDir}/`;
     if (ctx.dryRun) {
-      ctx.log(`[dry-run] would mkdir -p ${remoteDir}`);
-      ctx.log(`[dry-run] would scp ${path.basename(jarAbs)} → ${destHost}`);
+      ctx.log(`[dry-run] would scp jar/extras → /tmp then sudo mv → ${remoteDir}/`);
       return;
     }
-    ctx.log(`ssh mkdir -p ${remoteDir}`);
-    await sshExec({ server, command: `mkdir -p ${shQuote(remoteDir)}`, onLog: ctx.log });
-    ctx.log(`scp ${path.basename(jarAbs)} → ${destHost}`);
-    await scpFile({
+    const jarName = path.basename(jarAbs);
+    // 通用：只传到 dest 根目录（与常见上传脚本一致）。
+    // 若 Dockerfile 需要 target/*.jar，在 packages[].after 里自己整理，例如：
+    //   "after": ["mkdir -p target && cp -f <jar> target/", "bash ./deploy.sh"]
+    await scpViaTmpSudo({
       server,
       localPath: jarAbs,
-      remotePath: `${remoteDir}/${path.basename(jarAbs)}`,
+      remoteFinalPath: `${remoteDir}/${jarName}`,
       onLog: ctx.log,
     });
     for (const extra of extras) {
       const name = path.basename(extra);
-      ctx.log(`scp ${name} → ${destHost}`);
-      await scpFile({ server, localPath: extra, remotePath: `${remoteDir}/${name}`, onLog: ctx.log });
+      const remoteExtra = `${remoteDir}/${name}`;
+      await scpViaTmpSudo({
+        server,
+        localPath: extra,
+        remoteFinalPath: remoteExtra,
+        onLog: ctx.log,
+        afterMove: name === 'start.sh' ? `chmod +x ${shQuote(remoteExtra)}` : undefined,
+      });
     }
   });
 
   await runStep(ctx, 'remote', async () => {
-    const startSh = `${remoteDir}/start.sh`;
-    const script = [
-      `ls -lh ${shQuote(remoteDir)}`,
-      `if [ -f ${shQuote(startSh)} ]; then chmod +x ${shQuote(startSh)}; echo chmod +x start.sh; fi`,
-    ].join('\n');
     if (ctx.dryRun) {
-      ctx.log(`[dry-run] would ssh ls ${remoteDir} && chmod +x start.sh (if present)`);
+      ctx.log(`[dry-run] would ssh ls ${remoteDir}`);
       return;
     }
-    ctx.log(`ssh verify ${remoteDir}`);
-    await sshExec({ server, command: script, onLog: ctx.log });
+    ctx.log(`ssh ls ${remoteDir}`);
+    try {
+      await sshExec({
+        server,
+        command: `ls -lh ${shQuote(remoteDir)}`,
+        onLog: ctx.log,
+      });
+    } catch {
+      const pw = effectivePassword(server);
+      if (!pw) throw new Error(`无法列出 ${remoteDir}（无密码做 sudo）`);
+      ctx.log('普通 ls 失败，改用 sudo ls');
+      const body = `ls -lh ${shQuote(remoteDir)}`;
+      await sshExec({
+        server,
+        command: `echo ${shQuote(pw)} | sudo -S -p '' sh -c ${shQuote(body)}`,
+        onLog: ctx.log,
+        forceTty: true,
+      });
+    }
   });
+
+  if (pkg.after?.length) {
+    await runAfterHooks({ ctx, server, remoteDir, steps: pkg.after });
+  }
 }

@@ -1,11 +1,10 @@
 #!/usr/bin/env node
-import React from 'react';
 import { render } from 'ink';
 import meow from 'meow';
 import { App } from './app.js';
 import { findUserConfig } from './capabilities/upload-server/config.js';
-import { UploadServerApp } from './capabilities/upload-server/index.js';
 import { missingUserConfigMessage, runInit } from './capabilities/upload-server/init.js';
+import { UploadWizard } from './capabilities/upload-server/UploadWizard.js';
 
 const cli = meow(
   `
@@ -15,22 +14,13 @@ const cli = meow(
     $ cmd-tools upload-server --dry-run
     $ cmd-tools upload-server [options]
 
-  通用发版工具：按你的配置构建、打包并把 web/api 产物上传到服务器。
-
-  配置查找顺序
-    1. --config / -c
-    2. ./config/upload-server.conf          （当前工作目录）
-    3. ~/.config/cmd-tools/upload-server.conf
-    4. 包内 config/upload-server.example.conf（只读演示，仅 dry-run）
-
   Options
-    --init              复制 example 到本机 conf，打印给 AI 的提示词后退出
-    --force             与 --init 合用：覆盖已有 conf
-    --dry-run, -n       演练：同样进度 UI，跳过重构建 / scp / ssh
-    --server, -s        服务器 id
-    --services, -p      服务 id，逗号分隔
+    --init              生成 JSON 并打印给 AI 的提示词
+    --force             与 --init 合用：覆盖已有配置
+    --dry-run, -n       演练（不上传）
+    --server, -s        服务器 name
+    --packages, -p      package name，逗号分隔
     --config, -c        配置文件路径
-    --help              帮助
 `,
   {
     importMeta: import.meta,
@@ -39,34 +29,51 @@ const cli = meow(
       force: { type: 'boolean', default: false },
       dryRun: { type: 'boolean', shortFlag: 'n', default: false },
       server: { type: 'string', shortFlag: 's' },
-      services: { type: 'string', shortFlag: 'p' },
+      packages: { type: 'string', shortFlag: 'p' },
       config: { type: 'string', shortFlag: 'c' },
     },
   },
 );
 
-const cmd = cli.input[0];
+async function main() {
+  const cmd = cli.input[0];
 
-if (!cmd) {
-  render(<App />);
-} else if (cmd === 'upload-server' || cmd === 'deploy') {
-  // `deploy` is an undocumented compatibility alias
+  if (!cmd) {
+    render(<App dryRun={cli.flags.dryRun} />);
+    return;
+  }
+
+  if (cmd !== 'upload-server' && cmd !== 'deploy') {
+    console.error(`未知命令: ${cmd}（可用: upload-server）`);
+    cli.showHelp(1);
+    return;
+  }
+
   if (cli.flags.init) {
     process.exit(runInit({ force: cli.flags.force, configPath: cli.flags.config }));
   }
+
   if (!cli.flags.dryRun && !findUserConfig(cli.flags.config)) {
     console.error(missingUserConfigMessage());
     process.exit(1);
   }
+
+  const packageNames = cli.flags.packages
+    ?.split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
   render(
-    <UploadServerApp
+    <UploadWizard
       dryRun={cli.flags.dryRun}
-      serverId={cli.flags.server}
-      serviceIds={cli.flags.services?.split(',').map((s) => s.trim()).filter(Boolean)}
+      serverName={cli.flags.server}
+      packageNames={packageNames}
       configPath={cli.flags.config}
     />,
   );
-} else {
-  console.error(`未知命令: ${cmd}（可用: upload-server）`);
-  cli.showHelp(1);
 }
+
+main().catch((e) => {
+  console.error(e instanceof Error ? e.message : e);
+  process.exit(1);
+});

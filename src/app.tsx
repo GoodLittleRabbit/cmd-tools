@@ -1,40 +1,41 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Box, Text } from 'ink';
-import SelectInput from 'ink-select-input';
 import { Banner } from './ui/Banner.js';
-import { UploadServerApp } from './capabilities/upload-server/index.js';
+import { SelectList } from './ui/SelectList.js';
+import { UploadWizard } from './capabilities/upload-server/UploadWizard.js';
+import { colors } from './ui/theme.js';
 
-type Item = { label: string; value: string };
-
-const items: Item[] = [
-  { label: 'upload-server  ·  交互发版（web/api）', value: 'upload-server' },
-  { label: '（更多能力即将加入）', value: 'soon' },
-  { label: '退出', value: 'exit' },
-];
-
-export function App() {
+export function App({ dryRun = false }: { dryRun?: boolean }) {
   const [choice, setChoice] = useState<string | null>(null);
 
   if (choice === 'upload-server') {
-    return <UploadServerApp dryRun={false} />;
-  }
-  if (choice === 'exit') {
-    return <Text>已退出</Text>;
-  }
-  if (choice === 'soon') {
     return (
-      <Box flexDirection="column">
-        <Banner title="cmd-tools" />
-        <Text color="yellow">该能力还在路上。</Text>
-      </Box>
+      <UploadWizard
+        key="upload-server"
+        dryRun={dryRun}
+        onHome={() => setChoice(null)}
+      />
     );
   }
 
   return (
     <Box flexDirection="column">
-      <Banner title="cmd-tools" />
-      <Text dimColor>选择能力（回车确认）</Text>
-      <SelectInput items={items} onSelect={(item) => setChoice(item.value)} />
+      <Banner title="cmd-tools" subtitle="Ink TUI" />
+      <Text color={colors.muted}>选择能力</Text>
+      <Box marginTop={1}>
+        <SelectList
+          key="home"
+          canBack={false}
+          items={[
+            { value: 'upload-server', label: 'upload-server', hint: '打包上传 web / api' },
+            { value: 'exit', label: '退出' },
+          ]}
+          onSubmit={(item) => {
+            if (item.value === 'exit') process.exit(0);
+            setChoice(item.value);
+          }}
+        />
+      </Box>
     </Box>
   );
 }

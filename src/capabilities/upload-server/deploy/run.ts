@@ -1,19 +1,20 @@
-import { describeRemote, type Server, type Service } from '../config.js';
+import { describeDest, packageMode, type Package, type Server } from '../config.js';
+import { resolvePackageBuild } from '../detect.js';
 import { deployApi } from './api.js';
 import { effectivePassword } from './ssh.js';
 import type { DeployContext, Emit, StepStatus } from './types.js';
 import { deployWeb } from './web.js';
 
 export async function runDeploy(opts: {
-  codeRoot: string;
+  rootPath: string;
   server: Server;
-  services: Service[];
+  packages: Package[];
   dryRun: boolean;
   emit: Emit;
 }): Promise<boolean> {
-  const { codeRoot, server, services, dryRun, emit } = opts;
-  emit({ type: 'log', line: `server ${server.label} · ${server.user}@${server.host}` });
-  emit({ type: 'log', line: `CODE_ROOT ${codeRoot}` });
+  const { rootPath, server, packages, dryRun, emit } = opts;
+  emit({ type: 'log', line: `server ${server.name} · ${server.user}@${server.host}` });
+  emit({ type: 'log', line: `ROOT_PATH ${rootPath}` });
   emit({
     type: 'log',
     line: dryRun ? 'mode=dry-run · 跳过重构建 / scp / ssh' : 'mode=real · 本地构建后 scp + ssh',
@@ -21,44 +22,54 @@ export async function runDeploy(opts: {
   if (!dryRun && !effectivePassword(server)) {
     emit({ type: 'log', line: '未配置密码（空或 CHANGE_ME）· 将尝试 SSH 密钥登录' });
   }
-  for (const svc of services) {
+
+  // 先探测产物字段，再 plan / 发版（避免 packageMode 在缺 outDir 时误报）
+  const resolvedPackages = packages.map((pkg) => {
+    const resolved = resolvePackageBuild(rootPath, pkg);
+    if (resolved.detectReason) {
+      emit({ type: 'log', line: `[${resolved.name}] ${resolved.detectReason}` });
+    }
+    return resolved;
+  });
+
+  for (const svc of resolvedPackages) {
     emit({
       type: 'log',
-      line: `plan ${svc.id} (${svc.kind})  ${codeRoot}/${svc.projectRel} → ${describeRemote(svc, server.id)}`,
+      line: `plan ${svc.name} (${packageMode(svc)})  ${rootPath}/${svc.dir} → ${describeDest(svc, server.name)}`,
     });
   }
 
   let ok = true;
-  for (let i = 0; i < services.length; i++) {
-    const service = services[i]!;
+  for (let i = 0; i < resolvedPackages.length; i++) {
+    const pkg = resolvedPackages[i]!;
     emit({
-      type: 'service-start',
+      type: 'pkg-start',
       index: i,
-      total: services.length,
-      serviceId: service.id,
-      label: service.label,
+      total: packages.length,
+      packageId: pkg.name,
+      label: pkg.name,
     });
 
     const ctx: DeployContext = {
-      codeRoot,
+      rootPath,
       dryRun,
       emit,
-      log: (line) => emit({ type: 'log', serviceId: service.id, line: `[${service.id}] ${line}` }),
+      log: (line) => emit({ type: 'log', packageId: pkg.name, line: `[${pkg.name}] ${line}` }),
       step: (id, status: StepStatus) =>
-        emit({ type: 'step', serviceId: service.id, step: id, status, dryRun }),
+        emit({ type: 'step', packageId: pkg.name, step: id, status, dryRun }),
     };
 
     try {
-      if (service.kind === 'web') {
-        await deployWeb({ ctx, server, service });
+      if (packageMode(pkg) === 'web') {
+        await deployWeb({ ctx, server, pkg });
       } else {
-        await deployApi({ ctx, server, service });
+        await deployApi({ ctx, server, pkg });
       }
-      emit({ type: 'service-done', serviceId: service.id, ok: true });
+      emit({ type: 'pkg-done', packageId: pkg.name, ok: true });
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
       ctx.log(error);
-      emit({ type: 'service-done', serviceId: service.id, ok: false, error });
+      emit({ type: 'pkg-done', packageId: pkg.name, ok: false, error });
       ok = false;
       break;
     }

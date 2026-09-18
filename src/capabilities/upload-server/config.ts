@@ -2,41 +2,111 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyApiPreset } from './preset.js';
 
 export type Server = {
-  id: string;
-  label: string;
+  /** 显示名（也是 dest 的 key） */
+  name: string;
   host: string;
+  /** SSH 端口，默认 22 */
+  port: number;
   user: string;
   password: string;
-  roles: string[];
 };
 
-export type Service = {
-  id: string;
-  label: string;
-  kind: 'web' | 'api';
-  projectRel: string;
-  buildCommand: string;
-  remoteMap: string;
-  /** web: 相对项目的产物目录 */
-  artifactDir?: string;
-  /** web: 远端目录名 / tgz 名（默认 artifactDir 的 basename） */
-  remoteReleaseName?: string;
-  /** api */
-  jarRel?: string;
-  moduleRel?: string;
-  remoteSubdir?: string;
+export type Package = {
+  /** 显示名；也是勾选 / CLI 标识 */
+  name: string;
+  /** 相对 rootPath 的本地目录 */
+  dir: string;
+  /** 在 dir 下执行的构建命令（必填） */
+  build: string;
+  /** 服务器 name → 远端最终目录 */
+  dest: Record<string, string>;
+  outDir?: string;
+  releaseName?: string;
+  jar?: string;
+  module?: string;
+  /**
+   * 上传成功后在远端 dest 执行的钩子（生命周期）。
+   * 每步需中文 label，便于编排器展示「正在…」。
+   */
+  after?: AfterStep[];
 };
+
+export type AfterStep = {
+  /** 中文说明，如「整理 jar 到 target」「Docker 构建并启动」 */
+  label: string;
+  /** 在 dest 目录执行的 shell 命令 */
+  run: string;
+};
+
+/** 组件分组：一键发版一组 packages */
+export type Group = {
+  name: string;
+  packages: Package[];
+};
+
+/** 有 jar+module → api，否则按 web（产物字段可由 detect 补齐） */
+export function packageMode(pkg: Package): 'web' | 'api' {
+  if (pkg.jar?.trim() && pkg.module?.trim()) return 'api';
+  if (pkg.outDir?.trim()) return 'web';
+  // 尚未探测时：有任一 java 字段偏 api，否则 web
+  if (pkg.jar?.trim() || pkg.module?.trim()) return 'api';
+  return 'web';
+}
+
 
 export type LoadedConfig = {
-  codeRoot: string;
+  /** 本地根路径；packages[].dir 相对它 */
+  rootPath: string;
   servers: Server[];
-  services: Service[];
+  /** 组件分组（一键勾选整组） */
+  groups: Group[];
+  /** 所有 group 下 packages 展平（兼容旧逻辑） */
+  packages: Package[];
   configPath: string;
   demo: boolean;
-  apiPreset: string;
+};
+
+type RawConfig = {
+  rootPath?: string;
+  /** @deprecated */
+  codeRoot?: string;
+  servers?: Array<{
+    id?: string;
+    name?: string;
+    label?: string;
+    host?: string;
+    port?: number | string;
+    user?: string;
+    password?: string;
+  }>;
+  groups?: Array<{ name?: string; packages?: Array<RawPackage> }>;
+  packages?: Array<RawPackage>;
+  /** @deprecated */
+  services?: Array<RawPackage>;
+};
+
+type RawPackage = {
+  id?: string;
+  name?: string;
+  label?: string;
+  type?: string;
+  kind?: string;
+  dir?: string;
+  project?: string;
+  build?: string;
+  outDir?: string;
+  artifactDir?: string;
+  releaseName?: string;
+  remoteReleaseName?: string;
+  jar?: string;
+  module?: string;
+  after?: Array<{ label?: string; run?: string }>;
+  dest?: Record<string, string>;
+  remote?: Record<string, string>;
+  destDir?: string;
+  remoteSubdir?: string;
 };
 
 export function expandPath(p: string): string {
@@ -46,52 +116,42 @@ export function expandPath(p: string): string {
   return p;
 }
 
-function parseLine(line: string): string[] {
-  return line.split('|').map((s) => s.trim());
-}
-
-function extractArrayBlock(src: string, name: string): string[] {
-  const re = new RegExp(`${name}=\\(([\\s\\S]*?)\\n\\)`, 'm');
-  const m = src.match(re);
-  if (!m) return [];
-  return [...m[1].matchAll(/"([^"]*)"/g)].map((x) => x[1]);
-}
-
-function quotedValue(src: string, name: string): string | undefined {
-  const m = src.match(new RegExp(`^\\s*${name}="([^"]*)"`, 'm'));
-  return m?.[1];
+export function packageRoot(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(here, '../../..');
 }
 
 export function bundledExampleConfigPath(): string {
-  const here = path.dirname(fileURLToPath(import.meta.url));
-  // dist|src /capabilities/upload-server → package root
-  return path.resolve(here, '../../../config/upload-server.example.conf');
+  return path.join(packageRoot(), 'config', 'upload-server.example.json');
 }
 
 export function xdgConfigPath(): string {
   const base = process.env.XDG_CONFIG_HOME?.trim()
     ? expandPath(process.env.XDG_CONFIG_HOME)
     : path.join(os.homedir(), '.config');
-  return path.join(base, 'cmd-tools', 'upload-server.conf');
+  return path.join(base, 'cmd-tools', 'upload-server.json');
 }
 
 export function cwdConfigPath(): string {
-  return path.resolve(process.cwd(), 'config/upload-server.conf');
+  return path.resolve(process.cwd(), 'config', 'upload-server.json');
 }
 
-export function packageRoot(): string {
-  return path.dirname(path.dirname(bundledExampleConfigPath()));
+function isFile(p: string): boolean {
+  try {
+    return fs.existsSync(p) && fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
 }
 
-/** 用户 conf（不含包内 example）。没有则 undefined。 */
+/** 用户配置（不含包内 example） */
 export function findUserConfig(explicit?: string): string | undefined {
   if (explicit?.trim()) {
     const file = path.resolve(expandPath(explicit.trim()));
-    if (fs.existsSync(file) && fs.statSync(file).isFile()) return file;
-    return undefined;
+    return isFile(file) ? file : undefined;
   }
   for (const p of [cwdConfigPath(), xdgConfigPath()]) {
-    if (fs.existsSync(p) && fs.statSync(p).isFile()) return p;
+    if (isFile(p)) return p;
   }
   return undefined;
 }
@@ -110,157 +170,193 @@ export function configSearchPaths(explicit?: string): { label: string; path: str
 export function resolveConfigFile(explicit?: string): { file: string; demo: boolean } {
   if (explicit?.trim()) {
     const file = path.resolve(expandPath(explicit.trim()));
-    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) {
-      throw new Error(`找不到配置: ${file}`);
-    }
+    if (!isFile(file)) throw new Error(`找不到配置: ${file}`);
     const demo = path.resolve(file) === path.resolve(bundledExampleConfigPath());
     return { file, demo };
   }
-
-  const cwd = cwdConfigPath();
-  if (fs.existsSync(cwd) && fs.statSync(cwd).isFile()) {
-    return { file: cwd, demo: false };
-  }
-
-  const home = xdgConfigPath();
-  if (fs.existsSync(home) && fs.statSync(home).isFile()) {
-    return { file: home, demo: false };
-  }
-
+  const user = findUserConfig();
+  if (user) return { file: user, demo: false };
   const example = bundledExampleConfigPath();
-  if (fs.existsSync(example) && fs.statSync(example).isFile()) {
-    return { file: example, demo: true };
+  if (!isFile(example)) {
+    throw new Error('找不到 upload-server.json。请先复制 example 并填写。');
   }
-
-  const listed = configSearchPaths()
-    .map((r) => `  - ${r.label}: ${r.path}`)
-    .join('\n');
-  throw new Error(
-    `找不到配置。请复制 example 到 ./config/upload-server.conf 或 ~/.config/cmd-tools/upload-server.conf\n${listed}`,
-  );
+  return { file: example, demo: true };
 }
 
-function parseService(line: string, apiPreset: string): Service {
-  const parts = parseLine(line);
-  const kind = parts[2] as 'web' | 'api' | undefined;
-  if (kind === 'web') {
-    if (parts.length < 7) {
-      throw new Error(
-        `Web 服务字段不足（需要 id|label|web|projectRel|buildCommand|artifactDir|remoteMap）: ${line}`,
-      );
-    }
-    const [id, label, , projectRel, buildCommand, artifactDir, remoteMap, remoteReleaseName] = parts;
-    return {
-      id,
-      label,
-      kind,
-      projectRel,
-      buildCommand,
-      remoteMap,
-      artifactDir,
-      remoteReleaseName: remoteReleaseName || path.basename(artifactDir || 'dist'),
-    };
+function requireDest(dest: Record<string, string> | undefined, where: string): Record<string, string> {
+  if (!dest || typeof dest !== 'object' || Array.isArray(dest)) {
+    throw new Error(`${where}: dest 必须是对象，例如 { "dev": "/var/www/app" }`);
   }
-  if (kind === 'api') {
-    if (parts.length >= 9) {
-      const [id, label, , projectRel, buildCommand, jarRel, moduleRel, remoteSubdir, remoteMap] = parts;
-      if (!jarRel || !moduleRel || !remoteSubdir) {
-        throw new Error(`API 服务 ${id ?? '?'} 需要非空的 jarRel、moduleRel、remoteSubdir`);
-      }
-      return {
-        id,
-        label,
-        kind,
-        projectRel,
-        buildCommand,
-        remoteMap,
-        jarRel,
-        moduleRel,
-        remoteSubdir,
-      };
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(dest)) {
+    if (!k.trim() || typeof v !== 'string' || !v.trim()) {
+      throw new Error(`${where}: dest["${k}"] 必须是非空绝对路径`);
     }
-    if (parts.length === 6) {
-      const [id, label, , projectRel, shortName, remoteMap] = parts;
-      const layout = applyApiPreset(apiPreset, shortName);
-      return {
-        id,
-        label,
-        kind,
-        projectRel,
-        buildCommand: layout.buildCommand,
-        remoteMap,
-        jarRel: layout.jarRel,
-        moduleRel: layout.moduleRel,
-        remoteSubdir: layout.remoteSubdir,
-      };
-    }
-    throw new Error(
-      `API 服务字段不对: ${line}\n写全: id|label|api|projectRel|buildCommand|jarRel|moduleRel|remoteSubdir|remoteMap\n或设置 API_PRESET="yudao" 后使用短名: id|label|api|projectRel|shortName|remoteMap`,
-    );
+    out[k.trim()] = v.trim().replace(/\/$/, '');
   }
-  throw new Error(`未知 kind "${parts[2] ?? ''}"（需要 web 或 api）: ${line}`);
+  if (!Object.keys(out).length) throw new Error(`${where}: dest 不能为空`);
+  return out;
+}
+
+
+function parseAfter(raw: RawPackage['after'], where: string): AfterStep[] | undefined {
+  if (raw == null) return undefined;
+  if (!Array.isArray(raw)) {
+    throw new Error(`${where}: after 必须是数组，形如 [{ "label": "中文说明", "run": "shell" }]`);
+  }
+  if (!raw.length) return undefined;
+  return raw.map((item, i) => {
+    const at = `${where}.after[${i}]`;
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`${at}: 必须是对象 { label, run }，不支持字符串`);
+    }
+    const label = String(item.label ?? '').trim();
+    const run = String(item.run ?? '').trim();
+    if (!label) throw new Error(`${at}: 缺少 label（中文说明）`);
+    if (!run) throw new Error(`${at}: 缺少 run（shell 命令）`);
+    return { label, run };
+  });
+}
+
+function parsePackage(raw: RawPackage, index: number): Package {
+  const where = `packages[${index}]`;
+  const name = (raw.name ?? raw.label ?? raw.id)?.trim();
+  const dir = (raw.dir ?? raw.project)?.trim();
+  if (!name) throw new Error(`${where}: 缺少 name`);
+  if (!dir) throw new Error(`${where}: 缺少 dir（相对 rootPath）`);
+
+  let destRaw = raw.dest ?? raw.remote;
+  const sub = (raw.destDir ?? raw.remoteSubdir)?.trim();
+  if (destRaw && sub && !raw.dest) {
+    const merged: Record<string, string> = {};
+    for (const [k, v] of Object.entries(destRaw)) {
+      merged[k] = `${String(v).replace(/\/$/, '')}/${sub}`;
+    }
+    destRaw = merged;
+  }
+  const dest = requireDest(destRaw, where);
+
+  return {
+    name,
+    dir,
+    dest,
+    build: (() => {
+    const b = raw.build?.trim();
+    if (!b) throw new Error(`${where}: 缺少 build（该项目的打包命令）`);
+    return b;
+  })(),
+    outDir: (raw.outDir ?? raw.artifactDir)?.trim() || undefined,
+    releaseName: (raw.releaseName ?? raw.remoteReleaseName)?.trim() || undefined,
+    jar: raw.jar?.trim() || undefined,
+    module: raw.module?.trim() || undefined,
+    after: parseAfter(raw.after, where),
+  };
 }
 
 export function loadConfig(configPath?: string): LoadedConfig {
   const { file, demo } = resolveConfigFile(configPath);
-  const src = fs.readFileSync(file, 'utf8');
-  const codeRoot = expandPath(quotedValue(src, 'CODE_ROOT') ?? process.cwd());
-  const apiPreset = (quotedValue(src, 'API_PRESET') ?? '').trim();
+  let raw: RawConfig;
+  try {
+    raw = JSON.parse(fs.readFileSync(file, 'utf8')) as RawConfig;
+  } catch (e) {
+    throw new Error(`配置不是合法 JSON: ${file}\n${e instanceof Error ? e.message : e}`);
+  }
 
-  const servers = extractArrayBlock(src, 'SERVERS').map((line) => {
-    const [id, label, host, user, password, roles] = parseLine(line);
+  const rootPath = expandPath((raw.rootPath ?? raw.codeRoot)?.trim() || process.cwd());
+  if (!Array.isArray(raw.servers) || !raw.servers.length) {
+    throw new Error(`配置缺少 servers: ${file}`);
+  }
+  const hasGroups = Array.isArray(raw.groups) && raw.groups.length > 0;
+  const flatLegacy = raw.packages?.length ? raw.packages : raw.services;
+  if (!hasGroups && (!Array.isArray(flatLegacy) || !flatLegacy.length)) {
+    throw new Error(`配置缺少 groups（或旧字段 packages）: ${file}`);
+  }
+
+  const servers: Server[] = raw.servers.map((s, i) => {
+    const where = `servers[${i}]`;
+    if (!s.host?.trim()) throw new Error(`${where}: 缺少 host`);
+    if (!s.user?.trim()) throw new Error(`${where}: 缺少 user`);
+    const name = (s.name ?? s.label ?? s.id)?.trim();
+    if (!name) throw new Error(`${where}: 缺少 name`);
+    const portRaw = s.port;
+    let port = 22;
+    if (portRaw !== undefined && portRaw !== null && String(portRaw).trim() !== '') {
+      port = Number(portRaw);
+      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+        throw new Error(`${where}: port 必须是 1–65535 的整数`);
+      }
+    }
     return {
-      id,
-      label,
-      host,
-      user,
-      password,
-      roles: (roles ?? '')
-        .split(',')
-        .map((r) => r.trim())
-        .filter(Boolean),
+      name,
+      host: s.host.trim(),
+      port,
+      user: s.user.trim(),
+      password: s.password ?? '',
     };
   });
 
-  const services = extractArrayBlock(src, 'SERVICES').map((line) => parseService(line, apiPreset));
-
-  if (!servers.length) {
-    throw new Error(`配置没有 SERVERS: ${file}`);
+  let groups: Group[];
+  if (hasGroups) {
+    groups = raw.groups!.map((g, gi) => {
+      const gname = g.name?.trim() || `group-${gi + 1}`;
+      const list = g.packages;
+      if (!Array.isArray(list) || !list.length) {
+        throw new Error(`groups[${gi}] "${gname}" 缺少 packages`);
+      }
+      return {
+        name: gname,
+        packages: list.map((p, pi) => parsePackage(p, pi)),
+      };
+    });
+  } else {
+    // 旧版扁平 packages → 单个默认组
+    groups = [
+      {
+        name: 'default',
+        packages: flatLegacy!.map((p, i) => parsePackage(p, i)),
+      },
+    ];
   }
-  if (!services.length) {
-    throw new Error(`配置没有 SERVICES: ${file}`);
+
+  const packages = groups.flatMap((g) => g.packages);
+  const names = new Set<string>();
+  for (const pkg of packages) {
+    if (names.has(pkg.name)) {
+      throw new Error(`package name 重复: "${pkg.name}"（需全局唯一）`);
+    }
+    names.add(pkg.name);
   }
 
-  return { codeRoot, servers, services, configPath: file, demo, apiPreset };
-}
-
-export function resolveRemoteMap(map: string, serverId: string): string | undefined {
-  for (const pair of map.split(';;')) {
-    const idx = pair.indexOf(':');
-    if (idx < 0) continue;
-    const id = pair.slice(0, idx);
-    const p = pair.slice(idx + 1);
-    if (id === serverId) return p;
+  const serverNames = new Set(servers.map((s) => s.name));
+  for (const pkg of packages) {
+    for (const key of Object.keys(pkg.dest)) {
+      if (!serverNames.has(key)) {
+        throw new Error(`package "${pkg.name}" 的 dest 引用了未知服务器 name: ${key}`);
+      }
+    }
   }
-  return undefined;
+
+  return { rootPath, servers, groups, packages, configPath: file, demo };
 }
 
-export function webReleaseName(service: Service): string {
-  return service.remoteReleaseName || path.basename(service.artifactDir || 'dist');
+export function resolveDest(pkg: Package, serverName: string): string | undefined {
+  return pkg.dest[serverName];
 }
 
-export function apiRemoteSubdir(service: Service): string {
-  if (!service.remoteSubdir) {
-    throw new Error(`服务 ${service.id} 未配置 remoteSubdir`);
+export function webReleaseName(pkg: Package): string {
+  return pkg.releaseName || path.basename(pkg.outDir || 'dist');
+}
+
+/** 该 package 在指定服务器上的最终远端路径 */
+export function describeDest(pkg: Package, serverName: string): string {
+  const dest = resolveDest(pkg, serverName);
+  if (!dest) return '(未配置 dest)';
+  if (packageMode(pkg) === 'web' && (pkg.outDir || pkg.releaseName)) {
+    // web：dest 为部署根；有产物信息时再拼发布子目录
+    return `${dest.replace(/\/$/, '')}/${webReleaseName(pkg)}`;
   }
-  return service.remoteSubdir;
+  return dest;
 }
 
-/** 展示用远端目录 */
-export function describeRemote(service: Service, serverId: string): string {
-  const base = resolveRemoteMap(service.remoteMap, serverId);
-  if (!base) return '(未配置远端路径)';
-  const root = base.replace(/\/$/, '');
-  if (service.kind === 'web') return `${root}/${webReleaseName(service)}`;
-  return `${root}/${apiRemoteSubdir(service)}`;
-}
+/** @deprecated use describeDest */
+export const describeRemote = describeDest;

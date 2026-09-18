@@ -1,0 +1,50 @@
+{
+  "rootPath": "/path/to/your/code",
+  "servers": [
+    {
+      "name": "开发机",
+      "host": "127.0.0.1",
+      "port": 22,
+      "user": "deploy",
+      "password": "CHANGE_ME"
+    }
+  ],
+  "groups": [
+    {
+      "name": "your-web-app",
+      "packages": [
+        {
+          "name": "web",
+          "dir": "your-web-app",
+          "build": "pnpm build",
+          "dest": {
+            "开发机": "/var/www/your-web-app"
+          }
+        }
+      ]
+    },
+    {
+      "name": "your-api",
+      "packages": [
+        {
+          "name": "api",
+          "dir": "your-api",
+          "build": "mvn -pl server -am -DskipTests -Pmicroservice package",
+          "dest": {
+            "开发机": "/opt/your-api/api-server"
+          },
+          "after": [
+            {
+              "label": "整理 jar 到 target（供 Dockerfile）",
+              "run": "mkdir -p target && cp -f ./*.jar target/"
+            },
+            {
+              "label": "Docker 构建并启动容器",
+              "run": "bash ./deploy.sh"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

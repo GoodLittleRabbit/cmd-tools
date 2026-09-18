@@ -1,28 +1,55 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { resolveRemoteMap, webReleaseName, type Server, type Service } from '../config.js';
+import { resolveDest, webReleaseName, type Server, type Package } from '../config.js';
 import { formatBytes, runShell, tarGzipDir } from './exec.js';
 import { scpFile, sshExec } from './ssh.js';
+import { runAfterHooks } from './after.js';
 import { runStep } from './step.js';
 import type { DeployContext } from './types.js';
 
-export function remoteWebExtractScript(remoteDir: string, releaseName: string): string {
+/** 与 kfi upload-dist.sh 一致：dist-prod-2026年9月18日10:08:48 */
+export function webBackupName(releaseName: string, now = new Date()): string {
+  const parts = new Intl.DateTimeFormat('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(now);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  const y = get('year');
+  const m = String(Number(get('month')));
+  const d = String(Number(get('day')));
+  const hh = get('hour').padStart(2, '0');
+  const mm = get('minute').padStart(2, '0');
+  const ss = get('second').padStart(2, '0');
+  return `${releaseName}-${y}年${m}月${d}日${hh}:${mm}:${ss}`;
+}
+
+export function remoteWebExtractScript(
+  remoteDir: string,
+  releaseName: string,
+  backupName: string,
+): string {
   const tgz = `${releaseName}.tgz`;
   return [
     'set -euo pipefail',
     `REMOTE=${JSON.stringify(remoteDir)}`,
     `NAME=${JSON.stringify(releaseName)}`,
+    `BACKUP=${JSON.stringify(backupName)}`,
     `TGZ=${JSON.stringify(tgz)}`,
     'mkdir -p "$REMOTE"',
     'cd "$REMOTE"',
-    'TS=$(date +%Y%m%d%H%M%S)',
     'if [ -d "$NAME" ]; then',
-    '  mv "$NAME" "$NAME.$TS"',
-    '  echo "backed up $NAME -> $NAME.$TS"',
+    '  mv "$NAME" "$BACKUP"',
+    '  echo "backed up $NAME -> $BACKUP"',
     'fi',
     'mkdir -p "$NAME"',
-    'tar -xzf "$TGZ" -C "$NAME"',
+    'tar --warning=no-unknown-keyword -xzf "$TGZ" -C "$NAME"',
     'rm -f "$TGZ"',
     'echo "extracted $NAME"',
   ].join('\n');
@@ -31,22 +58,22 @@ export function remoteWebExtractScript(remoteDir: string, releaseName: string): 
 export async function deployWeb(opts: {
   ctx: DeployContext;
   server: Server;
-  service: Service;
+  pkg: Package;
 }): Promise<void> {
-  const { ctx, server, service } = opts;
-  const project = path.join(ctx.codeRoot, service.projectRel);
-  const artifactRel = service.artifactDir || 'dist';
-  const artifactDir = path.join(project, artifactRel);
-  const releaseName = webReleaseName(service);
-  const remote = resolveRemoteMap(service.remoteMap, server.id);
+  const { ctx, server, pkg } = opts;
+  const project = path.join(ctx.rootPath, pkg.dir);
+  const artifactRel = pkg.outDir || 'dist';
+  const outDir = path.join(project, artifactRel);
+  const releaseName = webReleaseName(pkg);
+  const remote = resolveDest(pkg, server.name);
   if (!remote) {
-    throw new Error(`未配置远端路径: ${service.id} @ ${server.id}`);
+    throw new Error(`未配置远端路径: ${pkg.name} @ ${server.name}`);
   }
   const remoteTgz = `${remote.replace(/\/$/, '')}/${releaseName}.tgz`;
-  const localTgz = path.join(os.tmpdir(), `cmd-tools-${service.id}-${Date.now()}.tgz`);
+  const localTgz = path.join(os.tmpdir(), `cmd-tools-${pkg.name}-${Date.now()}.tgz`);
 
   await runStep(ctx, 'build', async () => {
-    const cmd = service.buildCommand?.trim();
+    const cmd = pkg.build?.trim();
     if (!cmd) {
       ctx.log('无构建命令，跳过');
       return;
@@ -65,15 +92,15 @@ export async function deployWeb(opts: {
   try {
     await runStep(ctx, 'pack', async () => {
       if (ctx.dryRun) {
-        ctx.log(`[dry-run] would pack ${artifactDir} → ${releaseName}.tgz (--no-xattrs)`);
+        ctx.log(`[dry-run] would pack ${outDir} → ${releaseName}.tgz (--no-xattrs)`);
         return;
       }
-      const indexHtml = path.join(artifactDir, 'index.html');
+      const indexHtml = path.join(outDir, 'index.html');
       if (!fs.existsSync(indexHtml)) {
         throw new Error(`缺少产物 ${indexHtml}`);
       }
-      ctx.log(`packing ${artifactDir}`);
-      await tarGzipDir(artifactDir, localTgz, ctx.log);
+      ctx.log(`packing ${outDir}`);
+      await tarGzipDir(outDir, localTgz, ctx.log);
       ctx.log(`packed ${formatBytes(fs.statSync(localTgz).size)}`);
     });
 
@@ -88,16 +115,26 @@ export async function deployWeb(opts: {
     });
 
     await runStep(ctx, 'remote', async () => {
-      const script = remoteWebExtractScript(remote, releaseName);
+      const backup = webBackupName(releaseName);
+      const script = remoteWebExtractScript(remote, releaseName, backup);
       if (ctx.dryRun) {
         ctx.log(
-          `[dry-run] would ssh ${server.user}@${server.host} : backup ${releaseName} → ${releaseName}.$TS; tar -xzf; rm tgz (${remote})`,
+          `[dry-run] would ssh ${server.user}@${server.host} : backup ${releaseName} → ${backup}; tar -xzf; rm tgz (${remote})`,
         );
         return;
       }
-      ctx.log(`ssh extract ${server.host}:${remote}/${releaseName}`);
+      ctx.log(`ssh extract ${server.host}:${remote}/${releaseName} (backup ${backup})`);
       await sshExec({ server, command: script, onLog: ctx.log });
     });
+
+    if (pkg.after?.length) {
+      await runAfterHooks({
+        ctx,
+        server,
+        remoteDir: remote.replace(/\/$/, ''),
+        steps: pkg.after,
+      });
+    }
   } finally {
     if (fs.existsSync(localTgz)) {
       try {
