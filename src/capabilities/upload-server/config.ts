@@ -263,16 +263,25 @@ export function loadConfig(configPath?: string): LoadedConfig {
   }
 
   const rootPath = expandPath((raw.rootPath ?? raw.codeRoot)?.trim() || process.cwd());
-  if (!Array.isArray(raw.servers) || !raw.servers.length) {
-    throw new Error(`配置缺少 servers: ${file}`);
-  }
+  const serversRaw = Array.isArray(raw.servers) ? raw.servers : [];
   const hasGroups = Array.isArray(raw.groups) && raw.groups.length > 0;
   const flatLegacy = raw.packages?.length ? raw.packages : raw.services;
-  if (!hasGroups && (!Array.isArray(flatLegacy) || !flatLegacy.length)) {
-    throw new Error(`配置缺少 groups（或旧字段 packages）: ${file}`);
+  const hasFlat = Array.isArray(flatLegacy) && flatLegacy.length > 0;
+  // Empty skeleton (auto-init): allow rootPath="" + servers=[] + groups=[] without throwing.
+  const emptySkeleton =
+    !(raw.rootPath ?? raw.codeRoot)?.toString().trim() &&
+    serversRaw.length === 0 &&
+    !hasGroups &&
+    !hasFlat;
+  if (!emptySkeleton) {
+    if (!serversRaw.length) {
+      throw new Error(`配置缺少 servers: ${file}`);
+    }
+    if (!hasGroups && !hasFlat) {
+      throw new Error(`配置缺少 groups（或旧字段 packages）: ${file}`);
+    }
   }
-
-  const servers: Server[] = raw.servers.map((s, i) => {
+  const servers: Server[] = serversRaw.map((s, i) => {
     const where = `servers[${i}]`;
     if (!s.host?.trim()) throw new Error(`${where}: 缺少 host`);
     if (!s.user?.trim()) throw new Error(`${where}: 缺少 user`);
@@ -308,7 +317,7 @@ export function loadConfig(configPath?: string): LoadedConfig {
         packages: list.map((p, pi) => parsePackage(p, pi)),
       };
     });
-  } else {
+  } else if (hasFlat) {
     // 旧版扁平 packages → 单个默认组
     groups = [
       {
@@ -316,6 +325,9 @@ export function loadConfig(configPath?: string): LoadedConfig {
         packages: flatLegacy!.map((p, i) => parsePackage(p, i)),
       },
     ];
+  } else {
+    // 空骨架：servers/groups 皆空
+    groups = [];
   }
 
   const packages = groups.flatMap((g) => g.packages);

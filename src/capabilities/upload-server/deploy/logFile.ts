@@ -5,6 +5,26 @@ import path from 'node:path';
 const LOG_DIR = path.join(os.homedir(), '.cache', 'cmd-tools', 'logs');
 const FAIL_NAME = 'upload-server-last-fail.log';
 
+export function lastFailLogPath(): string {
+  return path.join(LOG_DIR, FAIL_NAME);
+}
+
+/** 打印上次失败日志；无文件时提示。返回 exit code。 */
+export function printLastFailLog(): number {
+  const file = lastFailLogPath();
+  if (!fs.existsSync(file)) {
+    console.log('暂无失败日志。');
+    console.log(`路径（失败时写入）：${file}`);
+    return 0;
+  }
+  console.log(`失败日志：${file}`);
+  console.log('------------------------------------------------------------');
+  console.log(fs.readFileSync(file, 'utf8').replace(/\s+$/, ''));
+  console.log('------------------------------------------------------------');
+  return 0;
+}
+
+
 /** 本机 Asia/Shanghai 墙钟 */
 export function formatNow(): string {
   return new Intl.DateTimeFormat('zh-CN', {

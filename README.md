@@ -16,15 +16,21 @@ pnpm dev
 # 已编译过可只：pnpm start
 ```
 
-3. 缺配置时自动初始化
+3. 缺配置时自动创建**空配置**
 
-首次 `pnpm start` / `pnpm start -- upload-server`（含 `--dry-run`）若本机还没有 `upload-server.json`，会自动从 example 复制一份，并打印可粘贴给 AI 的提示词：
+首次 `pnpm start` / `pnpm start -- upload-server`（含 `--dry-run`）若本机还没有 `upload-server.json`，会在 **`./config/upload-server.json`** 写入空骨架（不是复制带假项目的 example）：
 
+```json
+{
+  "rootPath": "",
+  "servers": [],
+  "groups": []
+}
 ```
-已自动初始化配置: <path>
-```
 
-也可手动重打提示词：
+若配置仍为空，**首页会显示给 AI 的用法**（先读 README → 问项目名 → 只扫这些项目 → 填 JSON）。填好后选「已填好配置，继续」。
+
+也可手动：
 
 ```bash
 pnpm start -- upload-server --init
@@ -34,9 +40,9 @@ pnpm start -- upload-server --init
 
 4. 填 JSON
 
-按提示词让 AI 扫描本机项目，只改配置文件。字段说明见 [`config/upload-server.fields.md`](config/upload-server.fields.md)，示例见 `config/upload-server.example.json`。
+先报项目名 → 再只扫描这些项目并填写。字段说明见 [`config/upload-server.fields.md`](config/upload-server.fields.md)，示例见 `config/upload-server.example.json`。
 
-要点：`rootPath`、`servers`、`groups` / `packages`（`name`、`dir`、**`build` 必填**、`dest`；可选 `outDir` / `jar` / `module` / `after`）。
+要点：`rootPath`、`servers`、`groups` / `packages`（`name`、`dir`、**`build` 必填**、`dest`；可选 `outDir` / `jar` / `module` / `releaseName` / `after`）。
 
 5. 演练
 
@@ -50,15 +56,25 @@ pnpm start -- upload-server --dry-run
 pnpm start -- upload-server
 ```
 
+## 查看失败日志
+
+```bash
+pnpm start -- /log
+# 或：pnpm start -- log
+```
+
+首页也可选 `/log`。成功不写日志；失败覆盖写入 `~/.cache/cmd-tools/logs/upload-server-last-fail.log`。
+
 ## 键位
 
 - 列表：↑↓ · Enter · ← 返回（首页不能 ←）
 - 分组：空格整组 · → 子项 · a 全选 · c 清空 · Enter
 - 子项：空格 · Enter 下一步 · ← 回分组
-- 发版中不可返回；成功回首页，失败看 `~/.cache/cmd-tools/logs/upload-server-last-fail.log`
+- 发版中不可返回；成功可选「继续发版」（回首页重选）或「退出」；失败看 `~/.cache/cmd-tools/logs/upload-server-last-fail.log`
 
 ## 配置要点
 
 - 查找顺序：`--config` → `./config/upload-server.json` → `~/.config/cmd-tools/upload-server.json` → example
+- 在 cmd-tools 包内开发时，只要 `./config` 可写，仍优先写 `./config/upload-server.json`（gitignore）
 - api 构建若需可执行 Boot jar，命令加 `-Pmicroservice`
 - `after` 仅支持：`[{ "label": "中文说明", "run": "shell" }]`

@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  bundledExampleConfigPath,
   cwdConfigPath,
   expandPath,
   findUserConfig,
@@ -25,18 +24,35 @@ function ensureDir(dir: string): boolean {
   }
 }
 
-/** Prefer ./config; if inside cmd-tools package or not writable, use ~/.config/cmd-tools */
+/**
+ * Prefer ./config/upload-server.json whenever its directory is writable
+ * (including when cwd is inside the cmd-tools package — the file is gitignored).
+ * Fall back to XDG only if the cwd config dir is not writable.
+ */
 export function chooseInitTarget(explicit?: string): { file: string; via: 'config' | 'cwd' | 'home' } {
   if (explicit?.trim()) {
     return { file: path.resolve(expandPath(explicit.trim())), via: 'config' };
   }
   const cwdFile = cwdConfigPath();
-  if (!insidePackage(process.cwd()) && ensureDir(path.dirname(cwdFile))) {
+  if (ensureDir(path.dirname(cwdFile))) {
     return { file: cwdFile, via: 'cwd' };
   }
   const homeFile = xdgConfigPath();
   ensureDir(path.dirname(homeFile));
   return { file: homeFile, via: 'home' };
+}
+
+/** Minimal empty skeleton — never copy the example (which contains fake projects). */
+export function emptyConfigJson(): string {
+  return `${JSON.stringify(
+    {
+      rootPath: '',
+      servers: [],
+      groups: [],
+    },
+    null,
+    2,
+  )}\n`;
 }
 
 export const FIELD_TABLE = `
@@ -59,61 +75,56 @@ groups[]          组件分组（一键勾选整组）
     after         上传成功后钩子：[{ "label": "中文说明", "run": "shell" }, ...]
 `;
 
-export function aiPromptForUser(confPath: string): string {
-  return `你是在帮使用者填写 cmd-tools 的发版配置，不是在改 cmd-tools 源码。
-
-目标配置文件（只改这一份 JSON）：
-  ${confPath}
-
-约束：
-- 只写/改上述 JSON，不要修改 cmd-tools 仓库里的 TypeScript/源码。
-- 不要调用或依赖业务仓库里现成的 upload/deploy shell；那些脚本只当作「信息来源」来推断主机、路径。
-- 密码、主机、路径一律写进 JSON；不要把密钥写进源码或 README。
-- JSON 必须合法（双引号、无尾逗号、无注释）。
-- packages[].build 必填；outDir / jar / module 可省略，由工具按目录结构探测。
-- 字段详解见同仓库 config/upload-server.fields.md；可对照 config/upload-server.example.json。
-- 填完后请让使用者执行：cmd-tools upload-server --dry-run
-- 真发：cmd-tools upload-server
-
-请扫描使用者本机/当前工作区，范围包括：
-- 文件名或内容含 upload / deploy / scp / ssh / rsync 的脚本
-- package.json、pom.xml
-- Makefile / justfile / scripts 目录
-- .vscode 下的上传/部署脚本或 tasks
-- dist、target/*.jar、Dockerfile、start.sh
-- 文档或注释里的主机、用户、远端目录
-
-根据扫描结果，按下列结构填写 JSON（可参考 example）：
-{
-  "rootPath": "/绝对路径",
-  "servers": [
-    { "name": "开发机", "host": "127.0.0.1", "port": 22, "user": "deploy", "password": "CHANGE_ME" }
-  ],
-  "groups": [
-    {
-      "name": "your-web-app",
-      "packages": [
-        {
-          "name": "web",
-          "dir": "your-web-app",
-          "build": "pnpm build",
-          "dest": { "开发机": "/var/www/your-web-app" }
-        }
-      ]
-    }
-  ]
+/** Short next-step hint — do not dump a long AI paste block. */
+export function nextStepHint(file: string): string {
+  return aiSetupGuide(file).join('\n');
 }
 
-${FIELD_TABLE}
+/**
+ * 给「使用者的 AI」看的首页说明（配置为空时展示）。
+ * 准确步骤：先读 README → 问项目名 → 只扫这些项目 → 填 JSON。
+ */
+export function aiSetupGuide(configPath: string): string[] {
+  return [
+    '给 AI 的用法（配置尚未填写）',
+    '',
+    '1. 先读本仓库 README.md（使用步骤）和 config/upload-server.fields.md（字段说明）。',
+    '2. 先问使用者：要发版的项目名字是哪些？（可多个）——确认名字之前不要全盘扫描。',
+    '3. 只扫描这些项目：目录、package.json / pom.xml、upload/deploy/scp 脚本、Dockerfile、.vscode 上传脚本等。',
+    '4. 只改这一份配置（含密码勿提交 git）：',
+    `   ${configPath}`,
+    '5. 填写：rootPath、servers、groups / packages（name、dir、build 必填、dest；可选 outDir / jar / module / after[{label,run}]）。',
+    '6. 可对照 config/upload-server.example.json；填完后让使用者：pnpm start -- upload-server --dry-run，再真发。',
+    '7. 查看上次失败日志：pnpm start -- /log（或首页选 /log）。',
+  ];
+}
 
-占位符必须换成真实值。
-dest 的 key 必须与 servers[].name 一致。
-build 必填；outDir / jar / module 通常可省略，由工具自动探测。`;
+/** True when rootPath is blank and servers/groups are empty arrays. */
+export function isEmptyUserConfig(file: string): boolean {
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as {
+      rootPath?: unknown;
+      servers?: unknown;
+      groups?: unknown;
+      packages?: unknown;
+    };
+    const root = typeof raw.rootPath === 'string' ? raw.rootPath.trim() : '';
+    const servers = Array.isArray(raw.servers) ? raw.servers : null;
+    const groups = Array.isArray(raw.groups) ? raw.groups : null;
+    const packages = Array.isArray(raw.packages) ? raw.packages : [];
+    if (root) return false;
+    if (!servers || servers.length > 0) return false;
+    if (!groups || groups.length > 0) return false;
+    if (packages.length > 0) return false;
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Ensure a user config file exists. First create does not need --force.
- * If an explicit --config path is missing, create its parent and copy the example there.
+ * Writes an empty skeleton (NOT a copy of the example).
  */
 export function ensureUserConfig(opts?: { configPath?: string }): { file: string; created: boolean } {
   const existing = findUserConfig(opts?.configPath);
@@ -121,60 +132,33 @@ export function ensureUserConfig(opts?: { configPath?: string }): { file: string
     return { file: existing, created: false };
   }
 
-  const example = bundledExampleConfigPath();
-  if (!fs.existsSync(example)) {
-    throw new Error(`缺少示例配置: ${example}`);
-  }
-
   const { file } = chooseInitTarget(opts?.configPath);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.copyFileSync(example, file);
+  fs.writeFileSync(file, emptyConfigJson(), 'utf8');
   return { file, created: true };
 }
 
 export function runInit(opts: { force?: boolean; configPath?: string }): number {
-  const example = bundledExampleConfigPath();
-  if (!fs.existsSync(example)) {
-    console.error(`缺少示例配置: ${example}`);
-    return 1;
-  }
   const { file, via } = chooseInitTarget(opts.configPath);
   if (fs.existsSync(file) && !opts.force) {
     console.error(`配置已存在: ${file}`);
-    console.error('如需覆盖请加 --force；或用 --config 指定其它路径。');
+    console.error('如需覆盖为空配置请加 --force；或用 --config 指定其它路径。');
     console.error('');
-    console.error('------------------------------------------------------------');
-    console.error('① 给使用者 AI 的提示词（下面整段复制）');
-    console.error('------------------------------------------------------------');
-    console.log(aiPromptForUser(file));
-    console.error('------------------------------------------------------------');
+    console.log(nextStepHint(file));
     return 0;
   }
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.copyFileSync(example, file);
+  fs.writeFileSync(file, emptyConfigJson(), 'utf8');
   const where =
     via === 'home'
-      ? '（当前在 cmd-tools 目录内或不便写入，已放到用户配置目录）'
+      ? '（cwd 的 config 目录不可写，已放到用户配置目录）'
       : via === 'cwd'
-        ? '（当前工作目录 ./config）'
+        ? insidePackage(process.cwd())
+          ? '（./config/upload-server.json，已 gitignore）'
+          : '（当前工作目录 ./config）'
         : '';
-  console.log(`已写入配置: ${file} ${where}`.trim());
-  console.log('请把真实路径 / 主机 / 密码填进该 JSON（不要提交密钥）。');
-  console.log('');
-  console.log('------------------------------------------------------------');
-  console.log('① 给使用者 AI 的提示词（下面整段复制）');
-  console.log('------------------------------------------------------------');
-  console.log(aiPromptForUser(file));
-  console.log('------------------------------------------------------------');
-  console.log('① 结束');
-  console.log('');
-  console.log('------------------------------------------------------------');
-  console.log('② 字段对应表');
-  console.log('------------------------------------------------------------');
-  console.log(FIELD_TABLE);
-  console.log('------------------------------------------------------------');
-  console.log('下一步: 把上面提示词交给你的 AI 填 JSON，然后:');
-  console.log('  cmd-tools upload-server --dry-run');
+  console.log(`已创建空配置: ${file} ${where}`.trim());
+  console.log(nextStepHint(file));
   return 0;
 }
 
@@ -182,7 +166,9 @@ export function missingUserConfigMessage(): string {
   return [
     '未找到本机 upload-server.json。',
     '请先运行: cmd-tools upload-server --init',
-    '然后把终端里的提示词交给你的 AI，扫描本机项目并填写 JSON。',
+    '或直接 pnpm dev / pnpm start（会自动生成空配置）。',
+    '下一步：先告诉助手要发版的项目名字，再扫描填写。',
     `查找位置: ${cwdConfigPath()} 或 ${xdgConfigPath()}`,
   ].join('\n');
 }
+

@@ -2,7 +2,19 @@
 
 配置查找顺序：`--config` → `./config/upload-server.json` → `~/.config/cmd-tools/upload-server.json` → 包内 `upload-server.example.json`（演示）。
 
-首次启动若无用户配置，会自动从 example 复制一份（也可手动 `cmd-tools upload-server --init` 重打 AI 提示词）。
+首次启动若无用户配置，会自动生成**空骨架**（不是复制 example）：
+
+```json
+{
+  "rootPath": "",
+  "servers": [],
+  "groups": []
+}
+```
+
+也可手动 `cmd-tools upload-server --init`。
+
+**下一步：先告诉助手要发版的项目名字**（可多个）；确认名字之前不要全盘扫描。说出名字后，再只扫描这些项目并填写 JSON。
 
 示例模板：同目录 `upload-server.example.json`。
 
@@ -13,8 +25,8 @@
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
 | `rootPath` | 是 | 本机代码根目录（绝对路径）。`groups[].packages[].dir` 都相对此路径。 |
-| `servers` | 是 | 远端主机列表，至少一台。 |
-| `groups` | 是 | 组件分组；交互里可整组勾选。 |
+| `servers` | 是 | 远端主机列表（填项目前可为 `[]`）。 |
+| `groups` | 是 | 组件分组；交互里可整组勾选（填项目前可为 `[]`）。 |
 
 ---
 
@@ -45,13 +57,13 @@
 | --- | --- | --- |
 | `name` | 是 | 显示名 / CLI `--packages` 勾选标识。 |
 | `dir` | 是 | 相对 `rootPath` 的本地项目目录。 |
-| `build` | **是** | 打包命令（在 `rootPath/dir` 下执行）。**不可省略**；例如 `pnpm build`、`mvn -pl … package`。 |
+| `build` | **是** | 打包命令（在 `rootPath/dir` 下执行）。**不可省略**。 |
 | `dest` | 是 | 对象：`{ "<服务器 name>": "/远端绝对路径" }`。key 必须与某台 `servers[].name` 一致。 |
-| `outDir` | 否 | web 产物目录（相对 `dir`）。省略时由工具探测 `dist` / `build/dist` 等。 |
-| `jar` | 否 | api jar 相对 `dir` 的路径。省略时由工具在 `target/` 等处探测。 |
-| `module` | 否 | Maven `-pl` 模块路径。省略时可按目录结构探测。 |
+| `outDir` | 否 | web 产物目录（相对 `dir`）。省略时由工具探测。 |
+| `jar` | 否 | api jar 相对 `dir` 的路径。省略时由工具探测。 |
+| `module` | 否 | Maven `-pl` 模块路径。省略时可探测。 |
 | `releaseName` | 否 | 远端文件名覆盖（少用）。 |
-| `after` | 否 | 上传成功后在**远端**执行的钩子数组，仅支持：`[{ "label": "中文说明", "run": "shell 命令" }, …]`。 |
+| `after` | 否 | 上传成功后在**远端**执行的钩子：`[{ "label": "中文说明", "run": "shell 命令" }, …]`。 |
 
 ### 关于探测
 
@@ -60,16 +72,11 @@
 
 ---
 
-## 给 AI 的扫描指引
+## 填写流程
 
-填写配置前，请扫描本机/工作区：
-
-1. 含 `upload` / `deploy` / `scp` / `ssh` / `rsync` 的脚本（含 `.vscode`）
-2. `package.json`、`pom.xml`、`Makefile` / `justfile`、`scripts/`
-3. 产物：`dist`、`target/*.jar`、`Dockerfile`、`start.sh`
-4. 文档或注释里的主机、用户、远端目录
-
-把扫描到的主机/路径/构建命令写进 JSON；不要改 cmd-tools 源码；不要把密钥写进 README。
+1. 先告诉助手**要发版的项目名字**（可多个）
+2. 确认名字后，再只扫描这些项目并填写 JSON
+3. 不要一上来全盘扫描；不要改 cmd-tools 源码；不要把密钥写进 README
 
 填完后建议：
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import Spinner from 'ink-spinner';
 import {
@@ -12,6 +12,7 @@ import { resolvePackageBuild } from './detect.js';
 import { runDeploy } from './deploy/run.js';
 import { openDeployLogFile } from './deploy/logFile.js';
 import { packageTitle } from './display.js';
+import { aiSetupGuide } from './init.js';
 import { Banner } from '../../ui/Banner.js';
 import { SelectList } from '../../ui/SelectList.js';
 import { GroupPicker } from '../../ui/GroupPicker.js';
@@ -69,11 +70,33 @@ export function UploadWizard(props: {
     setStep(next);
   }
 
-  useEffect(() => {
-    if (step !== 'done' || !ok || !props.onHome) return;
-    const timer = setTimeout(() => props.onHome!(), 1200);
-    return () => clearTimeout(timer);
-  }, [step, ok, props.onHome]);
+  /** 发版成功后「继续发版」：有首页则回首页重选；否则重置向导再选 */
+  const continueDeploy = () => {
+    if (props.onHome) {
+      props.onHome();
+      return;
+    }
+    setServer(
+      props.serverName
+        ? (config.servers.find((s) => s.name === props.serverName) ?? null)
+        : null,
+    );
+    setPackages(
+      props.packageNames?.length
+        ? config.packages.filter((p) => props.packageNames!.includes(p.name))
+        : [],
+    );
+    setStatus('');
+    setOk(true);
+    setLogPath('');
+    setDeployStartedAt(undefined);
+    setBusy(false);
+    setProgress({ index: 0, total: 0, pkg: '', step: '' });
+    if (props.serverName && props.packageNames?.length) go('confirm');
+    else if (props.serverName) go('packages');
+    else go('server');
+  };
+
 
   const confirmActions = useMemo(
     () => [
@@ -151,6 +174,37 @@ export function UploadWizard(props: {
     setStatus(success ? (dryRun ? 'dry-run 完成' : '发版完成') : '发版失败');
     setBusy(false);
     setStep('done');
+  }
+
+  const configEmpty = config.packages.length === 0 || config.servers.length === 0;
+
+  useInput(
+    (_input, key) => {
+      if (!configEmpty) return;
+      if (key.leftArrow && props.onHome) props.onHome();
+    },
+    { isActive: configEmpty },
+  );
+
+  if (configEmpty) {
+    const guide = aiSetupGuide(config.configPath);
+    return (
+      <Box flexDirection="column">
+        <Banner title="cmd-tools · upload-server" subtitle={dryRun ? 'dry-run' : undefined} />
+        <Box flexDirection="column" marginBottom={1}>
+          {guide.map((line, i) => (
+            <Text key={i} color={line.startsWith('给 AI') ? colors.accent : undefined}>
+              {line || ' '}
+            </Text>
+          ))}
+        </Box>
+        {props.onHome ? (
+          <Text color={colors.muted}>按 ← 回首页</Text>
+        ) : (
+          <Text color={colors.muted}>Ctrl+C 退出</Text>
+        )}
+      </Box>
+    );
   }
 
   if (step === 'server') {
@@ -266,11 +320,24 @@ export function UploadWizard(props: {
         </Box>
       )}
       {step === 'done' ? (
-        <DoneExit
-          onHome={Boolean(props.onHome)}
-          autoHome={ok}
-          onExit={goHome}
-        />
+        ok ? (
+          <Box marginTop={1} flexDirection="column">
+            <SelectList
+              key={`done-ok-${navEpoch}`}
+              canBack={false}
+              items={[
+                { value: 'continue', label: '继续发版', hint: '回首页重新选择' },
+                { value: 'exit', label: '退出' },
+              ]}
+              onSubmit={(item) => {
+                if (item.value === 'continue') continueDeploy();
+                else exit();
+              }}
+            />
+          </Box>
+        ) : (
+          <DoneExit onExit={goHome} tip={props.onHome ? 'Enter · ← 回首页' : 'Enter · ← 退出'} />
+        )
       ) : null}
     </Box>
   );
@@ -320,22 +387,11 @@ function ConfirmStep(props: {
   );
 }
 
-function DoneExit({
-  onExit,
-  onHome,
-  autoHome,
-}: {
-  onExit: () => void;
-  onHome: boolean;
-  autoHome: boolean;
-}) {
-  // 仅「完成」页可离开；发版进行中不挂此组件
+function DoneExit({ onExit, tip }: { onExit: () => void; tip: string }) {
+  // 仅失败完成页；发版进行中不挂此组件
   useInput((_input, key) => {
     if (key.return || key.leftArrow) onExit();
   });
-  let tip = 'Enter · ← 退出';
-  if (onHome && autoHome) tip = 'Enter · ← 回首页（成功后片刻自动返回）';
-  else if (onHome) tip = 'Enter · ← 回首页';
   return (
     <Box marginTop={1}>
       <Text color={colors.muted}>{tip}</Text>
