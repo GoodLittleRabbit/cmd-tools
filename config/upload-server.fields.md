@@ -85,3 +85,5 @@ pnpm start -- upload-server --dry-run
 # 确认无误后再真发
 pnpm start -- upload-server
 ```
+
+**更新工具代码（不丢配置）**：`pnpm start -- /upgrade`（备份 upload-server.json → git pull → 字段迁回）。备份在 `~/.cache/cmd-tools/backup/`。

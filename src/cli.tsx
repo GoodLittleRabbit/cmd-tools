@@ -8,6 +8,7 @@ import {
   runInit,
 } from './capabilities/upload-server/init.js';
 import { printLastFailLog } from './capabilities/upload-server/deploy/logFile.js';
+import { runUpgrade } from './capabilities/upload-server/upgrade.js';
 import { UploadWizard } from './capabilities/upload-server/UploadWizard.js';
 
 const cli = meow(
@@ -16,6 +17,8 @@ const cli = meow(
     $ cmd-tools
     $ cmd-tools /log
     $ cmd-tools log
+    $ cmd-tools /upgrade
+    $ cmd-tools upgrade
     $ cmd-tools upload-server --init
     $ cmd-tools upload-server --dry-run
     $ cmd-tools upload-server [options]
@@ -30,6 +33,7 @@ const cli = meow(
 
   命令
     /log, log           打印上次发版失败日志（~/.cache/cmd-tools/logs/upload-server-last-fail.log）
+    /upgrade, upgrade   升级控制中心：备份配置 → git pull → 字段迁回
 `,
   {
     importMeta: import.meta,
@@ -59,11 +63,21 @@ function isLogCommand(cmd: string | undefined): boolean {
   return c === 'log' || c === '/log';
 }
 
+function isUpgradeCommand(cmd: string | undefined): boolean {
+  if (!cmd) return false;
+  const c = cmd.trim().toLowerCase();
+  return c === 'upgrade' || c === '/upgrade';
+}
+
 async function main() {
   const cmd = cli.input[0];
 
   if (isLogCommand(cmd)) {
     process.exit(printLastFailLog());
+  }
+
+  if (isUpgradeCommand(cmd)) {
+    process.exit(runUpgrade({ configPath: cli.flags.config }));
   }
 
   if (!cmd) {
@@ -73,7 +87,7 @@ async function main() {
   }
 
   if (cmd !== 'upload-server' && cmd !== 'deploy') {
-    console.error(`未知命令: ${cmd}（可用: upload-server · /log）`);
+    console.error(`未知命令: ${cmd}（可用: upload-server · /log · /upgrade）`);
     cli.showHelp(1);
     return;
   }

@@ -6,6 +6,7 @@ import { SelectList } from './ui/SelectList.js';
 import { UploadWizard } from './capabilities/upload-server/UploadWizard.js';
 import { aiSetupGuide, isEmptyUserConfig } from './capabilities/upload-server/init.js';
 import { lastFailLogPath } from './capabilities/upload-server/deploy/logFile.js';
+import { runUpgrade } from './capabilities/upload-server/upgrade.js';
 import { colors } from './ui/theme.js';
 
 export function App({
@@ -55,6 +56,7 @@ export function App({
           items={[
             { value: 'reload', label: '已填好配置，继续', hint: '重新检测配置文件' },
             { value: 'log', label: '/log 查看失败日志' },
+            { value: 'upgrade', label: '升级', hint: '备份配置 → pull → 迁回字段' },
             { value: 'exit', label: '退出' },
           ]}
           onSubmit={(item) => {
@@ -62,6 +64,9 @@ export function App({
             if (item.value === 'log') {
               setChoice('log');
               return;
+            }
+            if (item.value === 'upgrade') {
+              process.exit(runUpgrade({ configPath }));
             }
             setEmpty(isEmptyUserConfig(configPath));
           }}
@@ -81,10 +86,14 @@ export function App({
           items={[
             { value: 'upload-server', label: 'upload-server', hint: '打包上传 web / api' },
             { value: 'log', label: '/log', hint: '查看上次发版失败日志' },
+            { value: 'upgrade', label: '升级', hint: '备份配置 → pull → 迁回字段' },
             { value: 'exit', label: '退出' },
           ]}
           onSubmit={(item) => {
             if (item.value === 'exit') process.exit(0);
+            if (item.value === 'upgrade') {
+              process.exit(runUpgrade({ configPath }));
+            }
             setChoice(item.value);
           }}
         />

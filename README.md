@@ -56,6 +56,18 @@ pnpm start -- upload-server --dry-run
 pnpm start -- upload-server
 ```
 
+## 升级（别人更新代码）
+
+本地 `config/upload-server.json` **不进 git**，正常 `git pull` 一般不会覆盖/冲突。  
+字段结构若有变更，建议走升级控制中心：
+
+```bash
+pnpm start -- /upgrade
+# 或：pnpm start -- upgrade
+```
+
+流程：先备份配置到 `~/.cache/cmd-tools/backup/` → `git pull` → `pnpm install` / `build` → 把旧字段迁回新结构写回配置。首页也可选「升级」。
+
 ## 查看失败日志
 
 ```bash
