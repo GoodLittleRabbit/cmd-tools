@@ -253,20 +253,43 @@ function runCmd(cmd: string, cwd: string): { ok: boolean; status: number | null;
   return { ok: r.status === 0, status: r.status, output };
 }
 
-export function printUpgradeHelp(): void {
-  console.log(`升级控制中心（别人更新代码时用）
+/**
+ * 启动时自动升级配置（不给用户点选）。
+ * - 不自动 git pull（代码由使用者/AI 自行更新）
+ * - 若 migrate 后与现文件不同：先备份再写回
+ * - 幂等；无变化则静默
+ */
+export function autoUpgradeOnStart(configPath: string): { migrated: boolean; backupPath?: string } {
+  if (!configPath || !fs.existsSync(configPath)) {
+    return { migrated: false };
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch {
+    return { migrated: false };
+  }
+  const migrated = migrateConfig(raw);
+  const before = JSON.stringify(raw, null, 2).trim() + '\n';
+  const after = JSON.stringify(migrated, null, 2).trim() + '\n';
+  if (before === after) {
+    return { migrated: false };
+  }
+  const backupPath = backupUserConfig(configPath);
+  fs.writeFileSync(configPath, after, 'utf8');
+  console.log(`配置已自动升级（备份: ${backupPath}）`);
+  return { migrated: true, backupPath };
+}
 
-本机 upload-server.json 已 gitignore，git pull 一般不会覆盖。
-仍建议显式升级，避免字段结构变更导致配置失效：
+export function printUpgradeHelp(): void {
+  console.log(`配置升级（默认自动，无需用户点选）
+
+本机 upload-server.json 已 gitignore；每次启动会自动 migrate 字段（有变更才备份写回）。
+AI 更新代码后可选手动完整升级（pull + install + build + 迁回）：
 
   pnpm start -- /upgrade
-  # 或
-  pnpm start -- upgrade
 
-步骤：备份配置 → git pull --ff-only → pnpm install + build → 字段迁回新结构
-
-备份目录：~/.cache/cmd-tools/backup/upload-server-YYYYMMDD-HHmmss.json
-（时间戳为 Asia/Shanghai）
+备份目录：~/.cache/cmd-tools/backup/
 `);
 }
 

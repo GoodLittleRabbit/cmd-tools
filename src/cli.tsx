@@ -8,7 +8,7 @@ import {
   runInit,
 } from './capabilities/upload-server/init.js';
 import { printLastFailLog } from './capabilities/upload-server/deploy/logFile.js';
-import { runUpgrade } from './capabilities/upload-server/upgrade.js';
+import { autoUpgradeOnStart, runUpgrade } from './capabilities/upload-server/upgrade.js';
 import { UploadWizard } from './capabilities/upload-server/UploadWizard.js';
 
 const cli = meow(
@@ -16,12 +16,10 @@ const cli = meow(
   用法
     $ cmd-tools
     $ cmd-tools /log
-    $ cmd-tools log
-    $ cmd-tools /upgrade
-    $ cmd-tools upgrade
     $ cmd-tools upload-server --init
     $ cmd-tools upload-server --dry-run
     $ cmd-tools upload-server [options]
+    $ cmd-tools /upgrade
 
   Options
     --init              生成空配置（配置为空时首页会显示给 AI 的用法）
@@ -31,9 +29,10 @@ const cli = meow(
     --packages, -p      package name，逗号分隔
     --config, -c        配置文件路径
 
-  命令
-    /log, log           打印上次发版失败日志（~/.cache/cmd-tools/logs/upload-server-last-fail.log）
-    /upgrade, upgrade   升级控制中心：备份配置 → git pull → 字段迁回
+  斜杠命令（给 AI / 终端，不在首页菜单）
+    /log                打印上次发版失败日志
+    /upgrade            完整升级：备份 → git pull → install/build → 字段迁回
+                        （平时启动已自动 migrate，一般不用点）
 `,
   {
     importMeta: import.meta,
@@ -48,35 +47,31 @@ const cli = meow(
   },
 );
 
-/** 缺配置则自动创建空文件；说明文案交给 Ink 首页，避免终端刷屏 */
+/** 缺配置则自动创建；启动时静默自动升级配置字段 */
 function autoEnsureConfig(): string {
   const { file, created } = ensureUserConfig({ configPath: cli.flags.config });
   if (created) {
     console.log(`已创建空配置: ${file}`);
+  } else {
+    autoUpgradeOnStart(file);
   }
   return file;
 }
 
-function isLogCommand(cmd: string | undefined): boolean {
+function isSlashCommand(cmd: string | undefined, names: string[]): boolean {
   if (!cmd) return false;
   const c = cmd.trim().toLowerCase();
-  return c === 'log' || c === '/log';
-}
-
-function isUpgradeCommand(cmd: string | undefined): boolean {
-  if (!cmd) return false;
-  const c = cmd.trim().toLowerCase();
-  return c === 'upgrade' || c === '/upgrade';
+  return names.some((n) => c === n || c === `/${n}`);
 }
 
 async function main() {
   const cmd = cli.input[0];
 
-  if (isLogCommand(cmd)) {
+  // Claude 风格斜杠命令：不进首页菜单
+  if (isSlashCommand(cmd, ['log'])) {
     process.exit(printLastFailLog());
   }
-
-  if (isUpgradeCommand(cmd)) {
+  if (isSlashCommand(cmd, ['upgrade'])) {
     process.exit(runUpgrade({ configPath: cli.flags.config }));
   }
 

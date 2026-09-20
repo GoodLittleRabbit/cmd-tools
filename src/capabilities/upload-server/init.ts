@@ -95,8 +95,8 @@ export function aiSetupGuide(configPath: string): string[] {
     `   ${configPath}`,
     '5. 填写：rootPath、servers、groups / packages（name、dir、build 必填、dest；可选 outDir / jar / module / after[{label,run}]）。',
     '6. 可对照 config/upload-server.example.json；填完后让使用者：pnpm start -- upload-server --dry-run，再真发。',
-    '7. 查看上次失败日志：pnpm start -- /log（或首页选 /log）。',
-    '8. 更新 cmd-tools 代码且保留本机配置：pnpm start -- /upgrade（备份 → pull → 字段迁回）。本机 upload-server.json 已 gitignore，一般 pull 不冲突，仍建议走 /upgrade。',
+    '7. 查失败日志（斜杠命令，给 AI）：pnpm start -- /log。',
+    '8. 配置升级默认在每次启动时自动做（有字段变更才备份写回）；AI 更新代码后如需完整 pull+build 可执行：pnpm start -- /upgrade。首页不提供这两项菜单。',
   ];
 }
 

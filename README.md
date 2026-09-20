@@ -56,26 +56,25 @@ pnpm start -- upload-server --dry-run
 pnpm start -- upload-server
 ```
 
-## 升级（别人更新代码）
+## 配置升级（自动）
 
-本地 `config/upload-server.json` **不进 git**，正常 `git pull` 一般不会覆盖/冲突。  
-字段结构若有变更，建议走升级控制中心：
+本地 `config/upload-server.json` **不进 git**。每次启动会**自动** migrate 字段（有变更才备份到 `~/.cache/cmd-tools/backup/`），无需在首页选择。
+
+AI 更新本仓库后如需完整 `git pull + install + build + 迁回`，用斜杠命令（不在菜单）：
 
 ```bash
 pnpm start -- /upgrade
-# 或：pnpm start -- upgrade
 ```
 
-流程：先备份配置到 `~/.cache/cmd-tools/backup/` → `git pull` → `pnpm install` / `build` → 把旧字段迁回新结构写回配置。首页也可选「升级」。
+## 失败日志（斜杠命令）
 
-## 查看失败日志
+给 AI / 终端用，**不在首页菜单**：
 
 ```bash
 pnpm start -- /log
-# 或：pnpm start -- log
 ```
 
-首页也可选 `/log`。成功不写日志；失败覆盖写入 `~/.cache/cmd-tools/logs/upload-server-last-fail.log`。
+成功不写日志；失败覆盖写入 `~/.cache/cmd-tools/logs/upload-server-last-fail.log`。
 
 ## 键位
 
