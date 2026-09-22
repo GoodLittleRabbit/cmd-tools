@@ -52,7 +52,7 @@ export function SelectList({
       {items.map((item, i) => {
         const active = i === cursor;
         return (
-          <Box key={item.value}>
+          <Box key={item.value} marginBottom={1}>
             <Text color={active ? colors.accent : colors.text} bold={active}>
               {active ? '❯ ' : '  '}
               {item.label}

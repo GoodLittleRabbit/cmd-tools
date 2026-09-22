@@ -56,9 +56,11 @@ export async function deployApi(opts: {
   await runStep(ctx, 'build', async () => {
     const cmd = pkg.build?.trim();
     if (!cmd) {
+      ctx.progress('跳过构建（无 build 命令）');
       ctx.log('无构建命令，跳过');
       return;
     }
+    ctx.progress(ctx.dryRun ? `演练构建：${cmd}` : `构建中：${cmd}`);
     if (ctx.dryRun) {
       ctx.log(`[dry-run] skip ${cmd}  (cwd=${project})`);
       return;
@@ -74,6 +76,7 @@ export async function deployApi(opts: {
   let extras: string[] = [];
 
   await runStep(ctx, 'pack', async () => {
+    ctx.progress(ctx.dryRun ? '演练：核对 jar / Docker 附属文件' : '核对 jar / Docker 附属文件');
     if (ctx.dryRun) {
       ctx.log(`[dry-run] jar ${pkg.jar} → ${remoteDir}/ （经 /tmp + sudo mv）`);
       ctx.log('[dry-run] extras Dockerfile / start.sh / .dockerignore（若存在）');
@@ -90,6 +93,9 @@ export async function deployApi(opts: {
   });
 
   await runStep(ctx, 'upload', async () => {
+    ctx.progress(
+      ctx.dryRun ? `演练上传 → ${remoteDir}` : `上传 jar${extras.length ? ' 与 Docker 文件' : ''} → ${remoteDir}`,
+    );
     if (ctx.dryRun) {
       ctx.log(`[dry-run] would scp jar/extras → /tmp then sudo mv → ${remoteDir}/`);
       return;
@@ -118,6 +124,7 @@ export async function deployApi(opts: {
   });
 
   await runStep(ctx, 'remote', async () => {
+    ctx.progress(ctx.dryRun ? `演练：远端核对 ${remoteDir}` : `远端核对目录 ${remoteDir}`);
     if (ctx.dryRun) {
       ctx.log(`[dry-run] would ssh ls ${remoteDir}`);
       return;
@@ -145,5 +152,7 @@ export async function deployApi(opts: {
 
   if (pkg.after?.length) {
     await runAfterHooks({ ctx, server, remoteDir, steps: pkg.after });
+  } else {
+    ctx.progress('上传完成（无远端钩子）');
   }
 }

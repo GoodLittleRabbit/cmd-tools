@@ -136,7 +136,7 @@ export function GroupPicker({
             const active = i === subCursor;
             const on = picked.has(p.name);
             return (
-              <Box key={p.name}>
+              <Box key={p.name} marginBottom={1}>
                 <Text color={active ? colors.accent : colors.text} bold={active}>
                   {active ? '❯ ' : '  '}
                   {on ? '◉' : '○'} {p.label ?? p.name}
@@ -160,7 +160,7 @@ export function GroupPicker({
         const sel = g.packages.filter((p) => picked.has(p.name)).length;
         const m = markFor(sel, g.packages.length);
         return (
-          <Box key={g.name}>
+          <Box key={g.name} marginBottom={1}>
             <Text color={active ? colors.accent : colors.text} bold={active}>
               {active ? '❯ ' : '  '}
               {m} {g.name}

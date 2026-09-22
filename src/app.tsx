@@ -3,6 +3,7 @@ import { Box, Text } from 'ink';
 import { Banner } from './ui/Banner.js';
 import { SelectList } from './ui/SelectList.js';
 import { UploadWizard } from './capabilities/upload-server/UploadWizard.js';
+import { LogHistory } from './capabilities/upload-server/LogHistory.js';
 import { aiSetupGuide, isEmptyUserConfig } from './capabilities/upload-server/init.js';
 import { colors } from './ui/theme.js';
 
@@ -24,6 +25,18 @@ export function App({
         key="upload-server"
         dryRun={dryRun}
         configPath={configPath}
+        onHome={() => {
+          setEmpty(isEmptyUserConfig(configPath));
+          setChoice(null);
+        }}
+      />
+    );
+  }
+
+  if (choice === 'logs') {
+    return (
+      <LogHistory
+        key="logs"
         onHome={() => {
           setEmpty(isEmptyUserConfig(configPath));
           setChoice(null);
@@ -69,6 +82,7 @@ export function App({
           canBack={false}
           items={[
             { value: 'upload-server', label: 'upload-server', hint: '打包上传 web / api' },
+            { value: 'logs', label: '发版日志', hint: '历史成功 / 失败记录' },
             { value: 'exit', label: '退出' },
           ]}
           onSubmit={(item) => {

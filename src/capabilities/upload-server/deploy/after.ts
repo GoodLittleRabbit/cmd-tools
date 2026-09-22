@@ -21,9 +21,10 @@ export async function runAfterHooks(opts: {
   await runStep(ctx, 'after', async () => {
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i]!;
-      const title = `正在：${step.label}（${i + 1}/${steps.length}）`;
+      const title = `${step.label}（${i + 1}/${steps.length}）`;
+      ctx.progress(ctx.dryRun ? `演练：${title}` : title);
       onStepLabel?.(step.label);
-      ctx.log(title);
+      ctx.log(`正在：${title}`);
       ctx.log(`$ ${step.run}`);
 
       if (ctx.dryRun) {

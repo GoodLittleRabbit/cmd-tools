@@ -66,22 +66,29 @@ AI 更新本仓库后如需完整 `git pull + install + build + 迁回`，用斜
 pnpm start -- /upgrade
 ```
 
-## 失败日志（斜杠命令）
+## 发版日志（历史）
 
-给 AI / 终端用，**不在首页菜单**：
+成功、失败都会落盘到 `~/.cache/cmd-tools/logs/`（不设条数上限）。失败额外更新 `upload-server-last-fail.log`。
 
 ```bash
-pnpm start -- /log
+pnpm start -- /log          # 列表
+pnpm start -- /log 1        # 最新一条
+pnpm start -- /log fail     # 上次失败
+pnpm start -- /log latest   # 同 /log 1
 ```
 
-成功不写日志；失败覆盖写入 `~/.cache/cmd-tools/logs/upload-server-last-fail.log`。
+首页菜单也可进「发版日志」。
 
 ## 键位
 
 - 列表：↑↓ · Enter · ← 返回（首页不能 ←）
 - 分组：空格整组 · → 子项 · a 全选 · c 清空 · Enter
 - 子项：空格 · Enter 下一步 · ← 回分组
-- 发版中不可返回；成功可选「继续发版」（回首页重选）或「退出」；失败看 `~/.cache/cmd-tools/logs/upload-server-last-fail.log`
+- 发版中不可返回；多 package **并行**发版；进度按真实动作展示（构建命令 / after.label 等）
+- 确认页会扫描远端路径重叠、本地 dir 重复、相同 after 命令等；有风险时须选「已知风险，确认发版」
+- 成功/失败均写日志历史（首页「发版日志」或 `/log`）；失败另有 `upload-server-last-fail.log`
+- 成功可选「继续发版」（回首页重选）或「退出」
+
 
 ## 配置要点
 

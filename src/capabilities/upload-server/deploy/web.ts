@@ -75,9 +75,11 @@ export async function deployWeb(opts: {
   await runStep(ctx, 'build', async () => {
     const cmd = pkg.build?.trim();
     if (!cmd) {
+      ctx.progress('跳过构建（无 build 命令）');
       ctx.log('无构建命令，跳过');
       return;
     }
+    ctx.progress(ctx.dryRun ? `演练构建：${cmd}` : `构建中：${cmd}`);
     if (ctx.dryRun) {
       ctx.log(`[dry-run] skip ${cmd}  (cwd=${project})`);
       return;
@@ -91,6 +93,11 @@ export async function deployWeb(opts: {
 
   try {
     await runStep(ctx, 'pack', async () => {
+      ctx.progress(
+        ctx.dryRun
+          ? `演练打包 ${artifactRel} → ${releaseName}.tgz`
+          : `打包前端产物 ${artifactRel} → ${releaseName}.tgz`,
+      );
       if (ctx.dryRun) {
         ctx.log(`[dry-run] would pack ${outDir} → ${releaseName}.tgz (--no-xattrs)`);
         return;
@@ -106,6 +113,7 @@ export async function deployWeb(opts: {
 
     await runStep(ctx, 'upload', async () => {
       const dest = `${server.user}@${server.host}:${remoteTgz}`;
+      ctx.progress(ctx.dryRun ? `演练上传 ${releaseName}.tgz` : `上传前端包 ${releaseName}.tgz`);
       if (ctx.dryRun) {
         ctx.log(`[dry-run] would scp ${releaseName}.tgz → ${dest}`);
         return;
@@ -117,6 +125,11 @@ export async function deployWeb(opts: {
     await runStep(ctx, 'remote', async () => {
       const backup = webBackupName(releaseName);
       const script = remoteWebExtractScript(remote, releaseName, backup);
+      ctx.progress(
+        ctx.dryRun
+          ? `演练远端解压 ${releaseName}（备份旧版）`
+          : `远端解压 ${releaseName}（备份 → ${backup}）`,
+      );
       if (ctx.dryRun) {
         ctx.log(
           `[dry-run] would ssh ${server.user}@${server.host} : backup ${releaseName} → ${backup}; tar -xzf; rm tgz (${remote})`,
@@ -134,6 +147,8 @@ export async function deployWeb(opts: {
         remoteDir: remote.replace(/\/$/, ''),
         steps: pkg.after,
       });
+    } else {
+      ctx.progress('前端发布完成（无远端钩子）');
     }
   } finally {
     if (fs.existsSync(localTgz)) {

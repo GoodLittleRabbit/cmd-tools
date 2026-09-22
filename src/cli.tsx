@@ -7,7 +7,7 @@ import {
   isEmptyUserConfig,
   runInit,
 } from './capabilities/upload-server/init.js';
-import { printLastFailLog } from './capabilities/upload-server/deploy/logFile.js';
+import { printDeployLog } from './capabilities/upload-server/deploy/logFile.js';
 import { autoUpgradeOnStart, runUpgrade } from './capabilities/upload-server/upgrade.js';
 import { UploadWizard } from './capabilities/upload-server/UploadWizard.js';
 
@@ -16,6 +16,8 @@ const cli = meow(
   用法
     $ cmd-tools
     $ cmd-tools /log
+    $ cmd-tools /log 1
+    $ cmd-tools /log fail
     $ cmd-tools upload-server --init
     $ cmd-tools upload-server --dry-run
     $ cmd-tools upload-server [options]
@@ -30,7 +32,8 @@ const cli = meow(
     --config, -c        配置文件路径
 
   斜杠命令（给 AI / 终端，不在首页菜单）
-    /log                打印上次发版失败日志
+    /log                列出发版日志历史
+    /log <n|fail|latest|ok>  查看一条（1=最新；fail=上次失败）
     /upgrade            完整升级：备份 → git pull → install/build → 字段迁回
                         （平时启动已自动 migrate，一般不用点）
 `,
@@ -69,7 +72,7 @@ async function main() {
 
   // Claude 风格斜杠命令：不进首页菜单
   if (isSlashCommand(cmd, ['log'])) {
-    process.exit(printLastFailLog());
+    process.exit(printDeployLog(cli.input[1]));
   }
   if (isSlashCommand(cmd, ['upgrade'])) {
     process.exit(runUpgrade({ configPath: cli.flags.config }));

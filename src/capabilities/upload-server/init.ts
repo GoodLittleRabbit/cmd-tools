@@ -95,7 +95,7 @@ export function aiSetupGuide(configPath: string): string[] {
     `   ${configPath}`,
     '5. 填写：rootPath、servers、groups / packages（name、dir、build 必填、dest；可选 outDir / jar / module / after[{label,run}]）。',
     '6. 可对照 config/upload-server.example.json；填完后让使用者：pnpm start -- upload-server --dry-run，再真发。',
-    '7. 查失败日志（斜杠命令，给 AI）：pnpm start -- /log。',
+    '7. 查发版日志（斜杠命令）：pnpm start -- /log  ·  /log 1  ·  /log fail。',
     '8. 配置升级默认在每次启动时自动做（有字段变更才备份写回）；AI 更新代码后如需完整 pull+build 可执行：pnpm start -- /upgrade。首页不提供这两项菜单。',
   ];
 }

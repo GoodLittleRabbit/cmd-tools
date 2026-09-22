@@ -9,6 +9,7 @@ import {
   type Server,
 } from './config.js';
 import { resolvePackageBuild } from './detect.js';
+import { findDeployConflicts, type DeployConflict } from './deploy/conflicts.js';
 import { runDeploy } from './deploy/run.js';
 import { openDeployLogFile } from './deploy/logFile.js';
 import { packageTitle } from './display.js';
@@ -16,10 +17,17 @@ import { aiSetupGuide } from './init.js';
 import { Banner } from '../../ui/Banner.js';
 import { SelectList } from '../../ui/SelectList.js';
 import { GroupPicker } from '../../ui/GroupPicker.js';
+import { formatServerEndpoint, WizardContext } from '../../ui/WizardContext.js';
 import { WizardHeader } from '../../ui/WizardHeader.js';
 import { colors } from '../../ui/theme.js';
 
 type Step = 'server' | 'packages' | 'confirm' | 'deploy' | 'done';
+
+type PkgProgress = {
+  message: string;
+  done?: boolean;
+  ok?: boolean;
+};
 
 export function UploadWizard(props: {
   dryRun?: boolean;
@@ -31,7 +39,7 @@ export function UploadWizard(props: {
 }) {
   const { exit } = useApp();
   const dryRun = Boolean(props.dryRun);
-  /** CLI 指定了 --server 时，组件页不能 ← 回服务器列表 */
+  /** CLI 指定了 --server 时，发版单元页不能 ← 回服务器列表 */
   const serverLocked = Boolean(props.serverName);
   const goHome = () => {
     if (props.onHome) props.onHome();
@@ -60,7 +68,8 @@ export function UploadWizard(props: {
   const [status, setStatus] = useState('');
   const [ok, setOk] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState({ index: 0, total: 0, pkg: '', step: '' });
+  const [pkgProgress, setPkgProgress] = useState<Record<string, PkgProgress>>({});
+  const [doneCount, setDoneCount] = useState(0);
   /** Bump on every step change so lists remount clean (fresh useInput). */
   const [navEpoch, setNavEpoch] = useState(0);
 
@@ -91,22 +100,30 @@ export function UploadWizard(props: {
     setLogPath('');
     setDeployStartedAt(undefined);
     setBusy(false);
-    setProgress({ index: 0, total: 0, pkg: '', step: '' });
+    setPkgProgress({});
+    setDoneCount(0);
     if (props.serverName && props.packageNames?.length) go('confirm');
     else if (props.serverName) go('packages');
     else go('server');
   };
 
-
-  const confirmActions = useMemo(
-    () => [
-      dryRun ? '开始演练' : '确认发版',
-      '返回 · 重选组件',
-      '返回 · 重选服务器',
-      props.onHome ? '回首页' : '退出',
-    ],
-    [dryRun, props.onHome],
+  const conflicts = useMemo(
+    () => (server && packages.length ? findDeployConflicts(packages, server.name) : []),
+    [server, packages],
   );
+
+  const confirmActions = useMemo(() => {
+    const primary = dryRun
+      ? conflicts.length
+        ? '已知风险，开始演练'
+        : '开始演练'
+      : conflicts.length
+        ? '已知风险，确认发版'
+        : '确认发版';
+    return [primary, '返回 · 重选发版单元', '返回 · 重选服务器', props.onHome ? '回首页' : '退出'];
+  }, [dryRun, props.onHome, conflicts.length]);
+
+  const pkgNames = packages.map((p) => p.name);
 
   async function startDeploy() {
     if (!server || !packages.length) return;
@@ -115,18 +132,16 @@ export function UploadWizard(props: {
     setBusy(true);
     setLogPath('');
     setDeployStartedAt(Date.now());
-    setProgress({ index: 0, total: packages.length, pkg: '', step: '' });
-    const stepLabel: Record<string, string> = {
-      build: '构建',
-      pack: '打包',
-      upload: '上传',
-      remote: '远端',
-      after: '收尾',
-    };
+    setPkgProgress({});
+    setDoneCount(0);
     const logFile = openDeployLogFile('upload-server');
     logFile.append(`server ${server.name} · ${server.user}@${server.host}`);
     logFile.append(`packages ${packages.map((x) => x.name).join(', ')}`);
     logFile.append(dryRun ? 'mode=dry-run' : 'mode=real');
+    if (conflicts.length) {
+      logFile.append(`conflicts ${conflicts.length}`);
+      for (const c of conflicts) logFile.append(`  ! ${c.kind}: ${c.message}`);
+    }
 
     const success = await runDeploy({
       rootPath: config.rootPath,
@@ -136,28 +151,35 @@ export function UploadWizard(props: {
       emit: (ev) => {
         if (ev.type === 'log') {
           logFile.append(ev.line);
-          const m = ev.line.match(/^正在：(.+?)（/);
-          if (m) setProgress((p) => ({ ...p, step: m[1]! }));
         }
         if (ev.type === 'pkg-start') {
-          setProgress({
-            index: ev.index,
-            total: ev.total,
-            pkg: ev.label || ev.packageId,
-            step: '',
-          });
-          logFile.append(`(${ev.index + 1}/${ev.total}) ${ev.label || ev.packageId}`);
+          setPkgProgress((prev) => ({
+            ...prev,
+            [ev.packageId]: { message: '开始…' },
+          }));
+          logFile.append(`start ${ev.label || ev.packageId}`);
+        }
+        if (ev.type === 'progress') {
+          setPkgProgress((prev) => ({
+            ...prev,
+            [ev.packageId]: {
+              message: ev.message,
+              done: false,
+            },
+          }));
         }
         if (ev.type === 'step') {
-          const zh = stepLabel[ev.step] || ev.step;
-          setProgress((p) => ({ ...p, pkg: ev.packageId, step: `${zh}·${ev.status}` }));
-          logFile.append(`  ${ev.packageId} · ${zh} · ${ev.status}`);
+          logFile.append(`  ${ev.packageId} · ${ev.step} · ${ev.status}`);
         }
         if (ev.type === 'pkg-done') {
-          setProgress((p) => ({
-            ...p,
-            index: Math.min(p.index + 1, p.total),
-            step: ev.ok ? '完成' : '失败',
+          setDoneCount((n) => n + 1);
+          setPkgProgress((prev) => ({
+            ...prev,
+            [ev.packageId]: {
+              message: ev.ok ? '完成' : ev.error ? `失败：${ev.error}` : '失败',
+              done: true,
+              ok: ev.ok,
+            },
           }));
           logFile.append(
             ev.ok ? `  ✓ ${ev.packageId}` : `  ✗ ${ev.packageId}${ev.error ? ' — ' + ev.error : ''}`,
@@ -177,6 +199,9 @@ export function UploadWizard(props: {
   }
 
   const configEmpty = config.packages.length === 0 || config.servers.length === 0;
+  const pkgOrder = packages.map((p) => p.name);
+  const totalPkgs = packages.length;
+  const bannerTitle = dryRun ? 'cmd-tools · upload-server · dry-run' : 'cmd-tools · upload-server';
 
   useInput(
     (_input, key) => {
@@ -190,7 +215,7 @@ export function UploadWizard(props: {
     const guide = aiSetupGuide(config.configPath);
     return (
       <Box flexDirection="column">
-        <Banner title="cmd-tools · upload-server" subtitle={dryRun ? 'dry-run' : undefined} />
+        <Banner title={bannerTitle} />
         <Box flexDirection="column" marginBottom={1}>
           {guide.map((line, i) => (
             <Text key={i} color={line.startsWith('给 AI') ? colors.accent : undefined}>
@@ -199,7 +224,7 @@ export function UploadWizard(props: {
           ))}
         </Box>
         {props.onHome ? (
-          <Text color={colors.muted}>按 ← 回首页</Text>
+          <Text color={colors.muted}>← 回首页</Text>
         ) : (
           <Text color={colors.muted}>Ctrl+C 退出</Text>
         )}
@@ -210,9 +235,10 @@ export function UploadWizard(props: {
   if (step === 'server') {
     return (
       <Box flexDirection="column">
-        <Banner title="cmd-tools · upload-server" subtitle={dryRun ? 'dry-run' : undefined} />
+        <Banner title={bannerTitle} />
         <WizardHeader current="server" />
-        <Text color={colors.muted}>配置 {config.configPath}</Text>
+        <WizardContext configPath={config.configPath} packagesPlaceholder={false} />
+        <Text color={colors.muted}>选择发版目标服务器</Text>
         <Box marginTop={1}>
           <SelectList
             key={`server-${navEpoch}`}
@@ -221,7 +247,7 @@ export function UploadWizard(props: {
             items={config.servers.map((s) => ({
               value: s.name,
               label: s.name,
-              hint: `${s.user}@${s.host}${s.port && s.port !== 22 ? ':' + s.port : ''}`,
+              hint: formatServerEndpoint(s),
             }))}
             onSubmit={(item) => {
               const s = config.servers.find((x) => x.name === item.value)!;
@@ -238,11 +264,16 @@ export function UploadWizard(props: {
   if (step === 'packages' && server) {
     return (
       <Box flexDirection="column">
-        <Banner title="cmd-tools · upload-server" />
+        <Banner title={bannerTitle} />
         <WizardHeader current="packages" />
-        <Text color={colors.accent}>
-          服务器 {server.name} · {server.user}@{server.host}
-        </Text>
+        <WizardContext
+          serverName={server.name}
+          serverEndpoint={formatServerEndpoint(server)}
+          packages={[]}
+          packagesPlaceholder="尚未选择"
+          configPath={false}
+        />
+        <Text color={colors.muted}>空格勾选 · Enter 继续 · ← 返回</Text>
         <Box marginTop={1}>
           <GroupPicker
             key={`packages-${navEpoch}`}
@@ -281,9 +312,11 @@ export function UploadWizard(props: {
       <ConfirmStep
         key={`confirm-${navEpoch}`}
         dryRun={dryRun}
+        bannerTitle={bannerTitle}
         config={config}
         server={server}
         packages={packages}
+        conflicts={conflicts}
         actions={confirmActions}
         onBack={() => go('packages')}
         onAction={(i) => {
@@ -298,27 +331,68 @@ export function UploadWizard(props: {
 
   return (
     <Box flexDirection="column">
-      <Banner title="cmd-tools · upload-server" />
-      <WizardHeader current="deploy" startedAt={deployStartedAt} />
+      <Banner title={bannerTitle} />
+      <WizardHeader current="deploy" startedAt={busy ? deployStartedAt : undefined} />
+      {server ? (
+        <WizardContext
+          serverName={server.name}
+          serverEndpoint={formatServerEndpoint(server)}
+          packages={pkgNames}
+          packageCollapseAt={4}
+          configPath={false}
+        />
+      ) : null}
+
       {busy ? (
-        <Text color={colors.pink}>
-          <Spinner type="dots" /> {dryRun ? '演练中…' : '发版中…'}
-          {progress.pkg ? `  ${progress.pkg}` : ''}
-          {progress.step ? `  · ${progress.step}` : ''}
-          {progress.total > 0
-            ? `  (${Math.min(progress.index, progress.total)}/${progress.total})`
-            : ''}
-        </Text>
+        <Box flexDirection="column">
+          <Text color={colors.pink}>
+            <Spinner type="dots" /> {dryRun ? '演练中' : '发版中'}
+            {totalPkgs > 1 ? ' · 并行' : ''}
+            {totalPkgs > 0 ? ` · ${doneCount}/${totalPkgs}` : ''}
+          </Text>
+          <Box flexDirection="column" marginTop={1}>
+            {pkgOrder.map((name) => {
+              const row = pkgProgress[name];
+              if (!row) {
+                return (
+                  <Box key={name}>
+                    <Text color={colors.muted}>  ○  {name}</Text>
+                  </Box>
+                );
+              }
+              const mark = row.done ? (row.ok ? '✓' : '✗') : '…';
+              const color = row.done
+                ? row.ok
+                  ? colors.accent
+                  : colors.danger
+                : colors.text;
+              return (
+                <Box key={name}>
+                  <Text color={color}>
+                    {'  '}
+                    {mark}  {name}
+                    <Text color={colors.muted}>  {row.message}</Text>
+                  </Text>
+                </Box>
+              );
+            })}
+          </Box>
+        </Box>
       ) : (
         <Box flexDirection="column">
-          <Text color={ok ? colors.accent : colors.danger}>{status}</Text>
-          {!ok && logPath ? (
+          <Text color={ok ? colors.accent : colors.danger} bold>
+            {ok ? '✓' : '✗'}  {status}
+          </Text>
+          {logPath ? (
             <Box marginTop={1}>
-              <Text color={colors.muted}>失败日志 {logPath}</Text>
+              <Text color={colors.muted}>
+                {ok ? '日志' : '失败日志'}  {logPath}
+              </Text>
             </Box>
           ) : null}
         </Box>
       )}
+
       {step === 'done' ? (
         ok ? (
           <Box marginTop={1} flexDirection="column">
@@ -345,23 +419,33 @@ export function UploadWizard(props: {
 
 function ConfirmStep(props: {
   dryRun: boolean;
+  bannerTitle: string;
   config: LoadedConfig;
   server: Server;
   packages: Package[];
+  conflicts: DeployConflict[];
   actions: string[];
   onBack: () => void;
   onAction: (i: number) => void;
 }) {
-  const { dryRun, config, server, packages, actions, onBack, onAction } = props;
+  const { bannerTitle, config, server, packages, conflicts, actions, onBack, onAction } = props;
   return (
     <Box flexDirection="column">
-      <Banner title="cmd-tools · upload-server" subtitle={dryRun ? 'dry-run' : undefined} />
+      <Banner title={bannerTitle} />
       <WizardHeader current="confirm" />
+      <WizardContext
+        serverName={server.name}
+        serverEndpoint={formatServerEndpoint(server)}
+        packages={packages.map((p) => p.name)}
+        packageCollapseAt={99}
+        configPath={config.configPath}
+      />
+
       <Text color={colors.muted}>
-        服务器  {server.name}  ({server.user}@{server.host}
-        {server.port && server.port !== 22 ? `:${server.port}` : ''})
+        ROOT  {config.rootPath}
+        {packages.length > 1 ? `  ·  并行 ${packages.length} 个` : ''}
       </Text>
-      <Text color={colors.muted}>ROOT_PATH  {config.rootPath}</Text>
+
       <Box flexDirection="column" marginY={1}>
         {packages.map((p) => {
           let shown = p;
@@ -371,12 +455,32 @@ function ConfirmStep(props: {
             /* 确认页展示：探测失败仍显示 dest */
           }
           return (
-            <Text key={p.name} color={colors.text}>
-              · {packageTitle(p)}  →  {describeDest(shown, server.name)}
-            </Text>
+            <Box key={p.name}>
+              <Text>
+                <Text color={colors.accent}>  →  </Text>
+                <Text color={colors.text}>{packageTitle(p)}</Text>
+                <Text color={colors.muted}>  {describeDest(shown, server.name)}</Text>
+              </Text>
+            </Box>
           );
         })}
       </Box>
+
+      {conflicts.length ? (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text color={colors.danger} bold>
+            ⚠ 并行风险 · {conflicts.length}
+          </Text>
+          {conflicts.map((c, i) => (
+            <Box key={`${c.kind}-${i}`}>
+              <Text color={colors.pink}>
+                {'  '}[{c.kind}] {c.message}
+              </Text>
+            </Box>
+          ))}
+        </Box>
+      ) : null}
+
       <SelectList
         canBack
         onBack={onBack}
