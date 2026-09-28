@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { formatStamp } from '../../time.js';
 import { findUserConfig, packageRoot } from './config.js';
 import { chooseInitTarget, emptyConfigJson, ensureUserConfig } from './init.js';
 
@@ -9,21 +10,6 @@ import { chooseInitTarget, emptyConfigJson, ensureUserConfig } from './init.js';
 export const CONFIG_SCHEMA_VERSION = 1;
 
 const DEPRECATED_TOP_KEYS = new Set(['apiPreset', 'roles', 'type', 'id']);
-
-function shanghaiStamp(): string {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).formatToParts(new Date());
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '00';
-  return `${get('year')}${get('month')}${get('day')}-${get('hour')}${get('minute')}${get('second')}`;
-}
 
 function backupDir(): string {
   return path.join(os.homedir(), '.cache', 'cmd-tools', 'backup');
@@ -33,7 +19,7 @@ function backupDir(): string {
 export function backupUserConfig(configPath: string): string {
   const dir = backupDir();
   fs.mkdirSync(dir, { recursive: true });
-  const dest = path.join(dir, `upload-server-${shanghaiStamp()}.json`);
+  const dest = path.join(dir, `upload-server-${formatStamp()}.json`);
   fs.copyFileSync(configPath, dest);
   return dest;
 }

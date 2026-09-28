@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import {
   deployLogBodyLines,
+  formatStampDisplay,
   listDeployLogHistory,
   parseDeployLogMeta,
   summarizeDeployLog,
@@ -55,7 +56,7 @@ export function LogHistory(props: { onHome: () => void }) {
           onBack={props.onHome}
           items={entries.map((e, i) => ({
             value: String(i),
-            label: `${e.ok ? '✓' : '✗'}  ${e.stamp}`,
+            label: `${e.ok ? '✓' : '✗'}  ${formatStampDisplay(e.stamp)}`,
             hint: summarizeDeployLog(e.path),
           }))}
           onSubmit={(item) => {
@@ -107,7 +108,7 @@ function LogDetail(props: {
         </Text>
         <Text color={colors.muted}>
           {'  '}
-          {props.entry.stamp}
+          {formatStampDisplay(props.entry.stamp)}
           {meta.mode === 'dry-run' ? '  ·  dry-run' : ''}
         </Text>
       </Box>

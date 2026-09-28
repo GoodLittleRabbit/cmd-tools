@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { formatDateTime, formatStamp, formatStampDisplay } from '../../../time.js';
+
+export { formatStampDisplay };
 
 const LOG_DIR = path.join(os.homedir(), '.cache', 'cmd-tools', 'logs');
 const FAIL_NAME = 'upload-server-last-fail.log';
@@ -18,26 +21,12 @@ export type DeployLogEntry = {
   /** 文件名 */
   name: string;
   path: string;
-  /** 时间戳串 YYYYMMDD-HHmmss */
+  /** 文件名里的紧凑戳 YYYYMMDD-HHmmss */
   stamp: string;
   ok: boolean;
   mtimeMs: number;
   size: number;
 };
-
-/** 本机 Asia/Shanghai 墙钟 */
-export function formatNow(): string {
-  return new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(new Date());
-}
 
 export function formatElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -52,21 +41,6 @@ function ensureLogDir(): string {
   return LOG_DIR;
 }
 
-/** 文件名用的紧凑时间戳（上海墙钟） */
-function stampNow(d = new Date()): string {
-  const parts = new Intl.DateTimeFormat('zh-CN', {
-    timeZone: 'Asia/Shanghai',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).formatToParts(d);
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
-  return `${get('year')}${get('month')}${get('day')}-${get('hour')}${get('minute')}${get('second')}`;
-}
 
 /** 新→旧 */
 export function listDeployLogHistory(): DeployLogEntry[] {
@@ -118,7 +92,7 @@ export function parseDeployLogMeta(text: string): DeployLogMeta {
   const meta: DeployLogMeta = { packages: [] };
 
   for (const raw of lines) {
-    // 去掉可选时间戳前缀 [yyyy/…]
+    // 去掉可选时间戳前缀 [yyyy-MM-dd HH:mm:ss]
     const line = raw.replace(/^\[[^\]]+\]\s*/, '').trim();
     if (!line || line.startsWith('#')) continue;
 
@@ -219,7 +193,7 @@ export function printDeployLogHistory(): number {
   list.forEach((e, i) => {
     const mark = e.ok ? 'ok  ' : 'FAIL';
     const summary = summarizeDeployLog(e.path);
-    console.log(`  ${String(i + 1).padStart(2)}  ${mark}  ${e.stamp}  ${summary}`);
+    console.log(`  ${String(i + 1).padStart(2)}  ${mark}  ${formatStampDisplay(e.stamp)}  ${summary}`);
   });
   console.log('------------------------------------------------------------');
   console.log('查看：pnpm start -- /log <序号>   ·   /log fail   ·   /log latest');
@@ -296,18 +270,18 @@ export type DeployLogSession = {
  * 每次发版落一条历史；失败同步覆盖 `upload-server-last-fail.log`。
  */
 export function openDeployLogFile(tag = 'upload-server'): DeployLogSession {
-  const lines: string[] = [`# cmd-tools ${tag}  ${formatNow()}`];
+  const lines: string[] = [`# cmd-tools ${tag}  ${formatDateTime()}`];
 
   return {
     append(line: string) {
-      lines.push(`[${formatNow()}] ${line}`);
+      lines.push(`[${formatDateTime()}] ${line}`);
     },
     finish(ok: boolean) {
       const dir = ensureLogDir();
-      const stamp = stampNow();
+      const stamp = formatStamp();
       const name = `upload-server-${stamp}-${ok ? 'ok' : 'fail'}.log`;
       const file = path.join(dir, name);
-      lines.push(`[${formatNow()}] ${ok ? 'DONE' : 'FAIL'}`);
+      lines.push(`[${formatDateTime()}] ${ok ? 'DONE' : 'FAIL'}`);
       fs.writeFileSync(file, lines.join('\n') + '\n', 'utf8');
 
       if (!ok) {
