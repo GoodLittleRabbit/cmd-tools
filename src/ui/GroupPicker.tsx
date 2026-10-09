@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { colors } from './theme.js';
+import { useListWindow } from './use-list-window.js';
 
 export type GroupItem = {
   name: string;
@@ -19,12 +20,15 @@ export function GroupPicker({
   onBack,
   canBack = false,
   isActive = true,
+  reservedRows,
 }: {
   groups: GroupItem[];
   onSubmit: (packageNames: string[]) => void;
   onBack?: () => void;
   canBack?: boolean;
   isActive?: boolean;
+  /** 页眉/提示占用行数，用于算可视条数 */
+  reservedRows?: number;
 }) {
   const [cursor, setCursor] = useState(0);
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
@@ -41,6 +45,10 @@ export function GroupPicker({
     () => groups.flatMap((g) => g.packages.map((p) => p.name)),
     [groups],
   );
+
+  const groupWin = useListWindow(cursor, groups.length, reservedRows);
+  const pkgLen = drillGroup?.packages.length ?? 0;
+  const pkgWin = useListWindow(subCursor, pkgLen, reservedRows);
 
   useInput(
     (input, key) => {
@@ -128,11 +136,16 @@ export function GroupPicker({
 
   if (drillGroup) {
     const pkgs = drillGroup.packages;
+    const visible = pkgs.slice(pkgWin.start, pkgWin.end);
     return (
       <Box flexDirection="column">
         <Text color={colors.accent}>{drillGroup.name}</Text>
         <Box marginTop={1} flexDirection="column">
-          {pkgs.map((p, i) => {
+          {pkgWin.moreAbove ? (
+            <Text color={colors.muted}>{`  ↑ 还有 ${pkgWin.start} 项`}</Text>
+          ) : null}
+          {visible.map((p, offset) => {
+            const i = pkgWin.start + offset;
             const active = i === subCursor;
             const on = picked.has(p.name);
             return (
@@ -144,6 +157,9 @@ export function GroupPicker({
               </Box>
             );
           })}
+          {pkgWin.moreBelow ? (
+            <Text color={colors.muted}>{`  ↓ 还有 ${pkgs.length - pkgWin.end} 项`}</Text>
+          ) : null}
         </Box>
         <Box marginTop={1}>
           <Text color={colors.muted}>空格勾选 · Enter 下一步 · ← 返回 · 已选 </Text>
@@ -153,9 +169,15 @@ export function GroupPicker({
     );
   }
 
+  const visibleGroups = groups.slice(groupWin.start, groupWin.end);
+
   return (
     <Box flexDirection="column">
-      {groups.map((g, i) => {
+      {groupWin.moreAbove ? (
+        <Text color={colors.muted}>{`  ↑ 还有 ${groupWin.start} 项`}</Text>
+      ) : null}
+      {visibleGroups.map((g, offset) => {
+        const i = groupWin.start + offset;
         const active = i === cursor;
         const sel = g.packages.filter((p) => picked.has(p.name)).length;
         const m = markFor(sel, g.packages.length);
@@ -168,6 +190,9 @@ export function GroupPicker({
           </Box>
         );
       })}
+      {groupWin.moreBelow ? (
+        <Text color={colors.muted}>{`  ↓ 还有 ${groups.length - groupWin.end} 项`}</Text>
+      ) : null}
       <Box marginTop={1}>
         <Text color={colors.muted}>
           {allowListBack

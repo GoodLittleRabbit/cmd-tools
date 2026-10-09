@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { colors } from './theme.js';
+import { useListWindow } from './use-list-window.js';
 
 export type SelectItem = { label: string; value: string; hint?: string };
 
@@ -10,6 +11,7 @@ export function SelectList({
   onBack,
   canBack = false,
   isActive = true,
+  reservedRows,
 }: {
   items: SelectItem[];
   onSubmit: (item: SelectItem) => void;
@@ -17,9 +19,12 @@ export function SelectList({
   onBack?: () => void;
   canBack?: boolean;
   isActive?: boolean;
+  /** 页眉/提示占用行数，用于算可视条数 */
+  reservedRows?: number;
 }) {
   const [cursor, setCursor] = useState(0);
   const allowBack = canBack && Boolean(onBack);
+  const win = useListWindow(cursor, items.length, reservedRows);
 
   useInput(
     (_input, key) => {
@@ -47,9 +52,15 @@ export function SelectList({
     ? '↑↓ 移动 · Enter 确认 · ← 返回'
     : '↑↓ 移动 · Enter 确认';
 
+  const visible = items.slice(win.start, win.end);
+
   return (
     <Box flexDirection="column">
-      {items.map((item, i) => {
+      {win.moreAbove ? (
+        <Text color={colors.muted}>{`  ↑ 还有 ${win.start} 项`}</Text>
+      ) : null}
+      {visible.map((item, offset) => {
+        const i = win.start + offset;
         const active = i === cursor;
         return (
           <Box key={item.value} marginBottom={1}>
@@ -61,6 +72,9 @@ export function SelectList({
           </Box>
         );
       })}
+      {win.moreBelow ? (
+        <Text color={colors.muted}>{`  ↓ 还有 ${items.length - win.end} 项`}</Text>
+      ) : null}
       <Box marginTop={1}>
         <Text color={colors.muted}>{footer}</Text>
       </Box>
