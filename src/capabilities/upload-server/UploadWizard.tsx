@@ -4,6 +4,7 @@ import Spinner from 'ink-spinner';
 import {
   describeDest,
   loadConfig,
+  resolveDest,
   type LoadedConfig,
   type Package,
   type Server,
@@ -282,17 +283,23 @@ export function UploadWizard(props: {
               if (serverLocked) goHome();
               else go('server');
             }}
-            groups={config.groups.map((g) => ({
-              name: g.name,
-              packages: g.packages.map((pkg) => ({ name: pkg.name })),
-            }))}
+            groups={config.groups
+              .map((g) => ({
+                name: g.name,
+                packages: g.packages
+                  .filter((pkg) => Boolean(resolveDest(pkg, server.name)))
+                  .map((pkg) => ({ name: pkg.name })),
+              }))
+              .filter((g) => g.packages.length > 0)}
             onSubmit={(names) => {
               if (!names.length) {
                 setStatus('请至少勾选一个 package');
                 return;
               }
               const want = new Set(names);
-              const selected = config.packages.filter((pkg) => want.has(pkg.name));
+              const selected = config.packages.filter(
+                (pkg) => want.has(pkg.name) && Boolean(resolveDest(pkg, server.name)),
+              );
               setPackages(selected);
               go('confirm');
             }}

@@ -5,7 +5,7 @@
  *   tsx src/capabilities/upload-server/engine.ts \
  *     --config path --server name --packages a,b [--dry-run]
  */
-import { loadConfig, findUserConfig } from './config.js';
+import { loadConfig, findUserConfig, resolveDest } from './config.js';
 import { runDeploy } from './deploy/run.js';
 
 function arg(name: string): string | undefined {
@@ -60,6 +60,12 @@ async function main() {
       console.error(`no packages matched: ${packagesArg}`);
       process.exit(1);
     }
+  }
+
+  packages = packages.filter((pkg) => Boolean(resolveDest(pkg, server.name)));
+  if (!packages.length) {
+    console.error(`no packages with dest for server: ${serverId}`);
+    process.exit(1);
   }
 
   const ok = await runDeploy({
