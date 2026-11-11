@@ -56,6 +56,25 @@ pnpm start -- upload-server --dry-run
 pnpm start -- upload-server
 ```
 
+## 小程序上传
+
+多小程序预览 / 上传，与 upload-server 平级。私钥放在 `config/secrets/miniprogram/private.<appid>.key`（已 gitignore），不要写入 JSON。
+
+```bash
+pnpm start -- miniprogram
+# 或
+pnpm start -- mp --app 电子名片 --action preview --dry-run
+pnpm start -- miniprogram --app 电子名片,可颂主小程序 --action upload --version 0.0.1 --desc "修复登录"
+```
+
+- 查找顺序：`--config` → `./config/miniprogram.json` → `~/.config/cmd-tools/miniprogram.json`
+- 本机配置含路径，不进 git（`config/miniprogram.json` 已 gitignore）
+- 字段说明见 [`config/miniprogram.fields.md`](config/miniprogram.fields.md)，示例见 `config/miniprogram.example.json`
+- 向导直接勾选小程序，无需「已配置小程序」分组；版本默认从 `0.0.1` 起，上传必须填写备注。配置或密钥有问题会在确认发布前报错，不能继续
+- CLI 上传必须带 `--desc`；未传 `--version` 时从 `0.0.1` 起
+- `--action preview` 生成预览码到 `~/.cache/cmd-tools/miniprogram/`（不是名片业务的菊花码）
+- `--dry-run` 只校验配置、密钥是否存在、工程目录，不构建、不调用微信
+
 ## 配置升级（自动）
 
 本地 `config/upload-server.json` **不进 git**。每次启动会**自动** migrate 字段（有变更才备份到 `~/.cache/cmd-tools/backup/`），无需在首页选择。
@@ -93,6 +112,7 @@ pnpm start -- /log latest   # 同 /log 1
 ## 配置要点
 
 - 查找顺序：`--config` → `./config/upload-server.json` → `~/.config/cmd-tools/upload-server.json` → example
+- 小程序配置查找顺序：`--config` → `./config/miniprogram.json` → `~/.config/cmd-tools/miniprogram.json`
 - 在 cmd-tools 包内开发时，只要 `./config` 可写，仍优先写 `./config/upload-server.json`（gitignore）
 - api 构建若需可执行 Boot jar，命令加 `-Pmicroservice`
 - `after` 仅支持：`[{ "label": "中文说明", "run": "shell" }]`

@@ -4,6 +4,7 @@ import { Banner } from './ui/Banner.js';
 import { SelectList } from './ui/SelectList.js';
 import { UploadWizard } from './capabilities/upload-server/UploadWizard.js';
 import { LogHistory } from './capabilities/upload-server/LogHistory.js';
+import { MiniprogramWizard } from './capabilities/miniprogram/MiniprogramWizard.js';
 import { aiSetupGuide, isEmptyUserConfig } from './capabilities/upload-server/init.js';
 import { colors } from './ui/theme.js';
 
@@ -37,6 +38,19 @@ export function App({
     return (
       <LogHistory
         key="logs"
+        onHome={() => {
+          setEmpty(isEmptyUserConfig(configPath));
+          setChoice(null);
+        }}
+      />
+    );
+  }
+
+  if (choice === 'miniprogram') {
+    return (
+      <MiniprogramWizard
+        key="miniprogram"
+        dryRun={dryRun}
         onHome={() => {
           setEmpty(isEmptyUserConfig(configPath));
           setChoice(null);
@@ -82,6 +96,7 @@ export function App({
           canBack={false}
           items={[
             { value: 'upload-server', label: 'upload-server', hint: '打包上传 web / api' },
+            { value: 'miniprogram', label: '小程序上传', hint: '预览 / 上传微信小程序' },
             { value: 'logs', label: '发版日志', hint: '历史成功 / 失败记录' },
             { value: 'exit', label: '退出' },
           ]}

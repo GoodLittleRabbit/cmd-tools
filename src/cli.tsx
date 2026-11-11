@@ -10,6 +10,9 @@ import {
 import { printDeployLog } from './capabilities/upload-server/deploy/logFile.js';
 import { autoUpgradeOnStart, runUpgrade } from './capabilities/upload-server/upgrade.js';
 import { UploadWizard } from './capabilities/upload-server/UploadWizard.js';
+import { MiniprogramWizard } from './capabilities/miniprogram/MiniprogramWizard.js';
+import { parseAction, parseAppSelectors } from './capabilities/miniprogram/config.js';
+import { runMiniprogramCli } from './capabilities/miniprogram/run.js';
 
 const cli = meow(
   `
@@ -21,14 +24,20 @@ const cli = meow(
     $ cmd-tools upload-server --init
     $ cmd-tools upload-server --dry-run
     $ cmd-tools upload-server [options]
+    $ cmd-tools miniprogram --dry-run --app 电子名片 --action preview
+    $ cmd-tools mp --app <name|appid> --action preview|upload
     $ cmd-tools /upgrade
 
   Options
     --init              生成空配置（配置为空时首页会显示给 AI 的用法）
     --force             与 --init 合用：覆盖已有配置为空骨架
-    --dry-run, -n       演练（不上传）
-    --server, -s        服务器 name
-    --packages, -p      package name，逗号分隔
+    --dry-run, -n       演练（不上传 / 不调用微信）
+    --server, -s        服务器 name（upload-server）
+    --packages, -p      package name，逗号分隔（upload-server）
+    --app               小程序 name 或 appid，逗号可多选（miniprogram）
+    --action            preview 或 upload（miniprogram）
+    --version           小程序版本号（miniprogram；未传则从 0.0.1 起）
+    --desc              版本备注（miniprogram；upload 必填）
     --config, -c        配置文件路径
 
   斜杠命令（给 AI / 终端，不在首页菜单）
@@ -45,8 +54,13 @@ const cli = meow(
       dryRun: { type: 'boolean', shortFlag: 'n', default: false },
       server: { type: 'string', shortFlag: 's' },
       packages: { type: 'string', shortFlag: 'p' },
+      app: { type: 'string' },
+      action: { type: 'string' },
+      version: { type: 'string' },
+      desc: { type: 'string' },
       config: { type: 'string', shortFlag: 'c' },
     },
+    autoVersion: false,
   },
 );
 
@@ -67,6 +81,10 @@ function isSlashCommand(cmd: string | undefined, names: string[]): boolean {
   return names.some((n) => c === n || c === `/${n}`);
 }
 
+function wantsCliVersion(argv: string[]): boolean {
+  return argv.includes('--version') || argv.includes('-V');
+}
+
 async function main() {
   const cmd = cli.input[0];
 
@@ -79,13 +97,45 @@ async function main() {
   }
 
   if (!cmd) {
+    if (wantsCliVersion(process.argv.slice(2))) {
+      console.log(cli.pkg.version ?? '0.0.0');
+      return;
+    }
     const configPath = autoEnsureConfig();
     render(<App dryRun={cli.flags.dryRun} configPath={configPath} />);
     return;
   }
 
+  if (cmd === 'miniprogram' || cmd === 'mp') {
+    const selectors = parseAppSelectors(cli.flags.app);
+    const action = parseAction(cli.flags.action);
+    if (selectors?.length && action) {
+      process.exit(
+        await runMiniprogramCli({
+          configPath: cli.flags.config,
+          app: cli.flags.app,
+          action: cli.flags.action,
+          version: cli.flags.version,
+          desc: cli.flags.desc,
+          dryRun: cli.flags.dryRun,
+        }),
+      );
+    }
+    render(
+      <MiniprogramWizard
+        dryRun={cli.flags.dryRun}
+        configPath={cli.flags.config}
+        appNames={selectors}
+        action={action}
+        version={cli.flags.version}
+        desc={cli.flags.desc}
+      />,
+    );
+    return;
+  }
+
   if (cmd !== 'upload-server' && cmd !== 'deploy') {
-    console.error(`未知命令: ${cmd}（可用: upload-server · /log · /upgrade）`);
+    console.error(`未知命令: ${cmd}（可用: upload-server · miniprogram / mp · /log · /upgrade）`);
     cli.showHelp(1);
     return;
   }

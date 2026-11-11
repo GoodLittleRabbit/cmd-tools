@@ -4,6 +4,7 @@ import { resolveDest, type Server, type Package } from '../config.js';
 import { formatBytes, runShell, shQuote } from './exec.js';
 import { effectivePassword, scpViaTmpSudo, sshExec } from './ssh.js';
 import { runAfterHooks } from './after.js';
+import { withBuildGate } from './gates.js';
 import { runStep } from './step.js';
 import type { DeployContext } from './types.js';
 
@@ -69,7 +70,8 @@ export async function deployApi(opts: {
       throw new Error(`项目不存在: ${project}`);
     }
     ctx.log(`$ ${cmd}`);
-    await runShell(cmd, { cwd: project, onLog: ctx.log });
+    // 同 dir 串行：Maven 同工作区并发构建会写坏共享 target/（-am 连带依赖）
+    await withBuildGate(project, () => runShell(cmd, { cwd: project, onLog: ctx.log }));
   });
 
   let jarAbs = '';

@@ -1,0 +1,11 @@
+{
+  "rootPath": "/path/to/your/code",
+  "apps": [
+    {
+      "name": "示例小程序",
+      "appid": "wxYOUR_APPID",
+      "dir": "your-mp",
+      "type": "miniProgram"
+    }
+  ]
+}

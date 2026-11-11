@@ -18,12 +18,15 @@ export const UPLOAD_STEPS: WizardStep[] = [
 export function WizardHeader({
   current,
   startedAt,
+  steps = UPLOAD_STEPS,
 }: {
   current: string;
   /** 发版开始时间戳，有则显示已用时 */
   startedAt?: number;
+  /** 步骤条；默认 upload-server 四步 */
+  steps?: WizardStep[];
 }) {
-  const idx = Math.max(0, UPLOAD_STEPS.findIndex((s) => s.id === current));
+  const idx = Math.max(0, steps.findIndex((s) => s.id === current));
   const [elapsed, setElapsed] = useState('');
 
   useEffect(() => {
@@ -45,7 +48,7 @@ export function WizardHeader({
   return (
     <Box flexDirection="column" marginBottom={1}>
       <Box>
-        {UPLOAD_STEPS.map((s, i) => {
+        {steps.map((s, i) => {
           const active = s.id === current;
           const done = i < idx;
           const color = active ? colors.accent : done ? colors.pink : colors.muted;

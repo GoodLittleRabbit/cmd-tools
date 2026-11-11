@@ -5,6 +5,7 @@ import { resolveDest, webReleaseName, type Server, type Package } from '../confi
 import { formatBytes, runShell, tarGzipDir } from './exec.js';
 import { scpFile, sshExec } from './ssh.js';
 import { runAfterHooks } from './after.js';
+import { withBuildGate } from './gates.js';
 import { runStep } from './step.js';
 import type { DeployContext } from './types.js';
 
@@ -88,7 +89,8 @@ export async function deployWeb(opts: {
       throw new Error(`项目不存在: ${project}`);
     }
     ctx.log(`$ ${cmd}`);
-    await runShell(cmd, { cwd: project, onLog: ctx.log });
+    // 同 dir 串行：防止两个构建进程同写一个工作区（node_modules/产物目录）
+    await withBuildGate(project, () => runShell(cmd, { cwd: project, onLog: ctx.log }));
   });
 
   try {
