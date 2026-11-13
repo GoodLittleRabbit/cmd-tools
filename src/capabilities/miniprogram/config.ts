@@ -13,6 +13,7 @@ export const PROJECT_TYPES = [
 export type MiniProgramType = (typeof PROJECT_TYPES)[number];
 
 export type MiniProgramAction = 'preview' | 'upload';
+export type MiniProgramEnv = 'test' | 'prod';
 
 export type MiniProgramApp = {
   /** 显示名；也是 CLI --app 标识 */
@@ -205,6 +206,22 @@ export function parseAction(raw?: string): MiniProgramAction | undefined {
   if (!v) return undefined;
   if (v === 'preview' || v === 'upload') return v;
   throw new Error(`--action 须是 preview 或 upload，收到 "${raw}"`);
+}
+
+export function parseEnv(raw?: string): MiniProgramEnv | undefined {
+  const v = raw?.trim().toLowerCase();
+  if (!v) return undefined;
+  if (v === 'test' || v === 'dev' || v === 'development') return 'test';
+  if (v === 'prod' || v === 'production') return 'prod';
+  throw new Error(`--env 须是 test 或 prod，收到 "${raw}"`);
+}
+
+export function viteModeForEnv(env: MiniProgramEnv): 'development' | 'production' {
+  return env === 'test' ? 'development' : 'production';
+}
+
+export function envLabel(env: MiniProgramEnv): string {
+  return env === 'test' ? '测试（.env.development）' : '正式（.env.production）';
 }
 
 export function appDir(rootPath: string, app: MiniProgramApp): string {

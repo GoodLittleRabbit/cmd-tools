@@ -11,7 +11,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node scripts/run.mjs",
     "dev": "pnpm build && pnpm start",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "tsx --test 'src/**/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "engines": {

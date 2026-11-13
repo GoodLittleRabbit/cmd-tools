@@ -6,18 +6,19 @@ import { CheckList } from '../../ui/CheckList.js';
 import { SelectList } from '../../ui/SelectList.js';
 import { WizardHeader, type WizardStep } from '../../ui/WizardHeader.js';
 import { colors } from '../../ui/theme.js';
-import { loadConfig, type LoadedMiniProgramConfig, type MiniProgramAction, type MiniProgramApp } from './config.js';
+import { envLabel, loadConfig, type LoadedMiniProgramConfig, type MiniProgramAction, type MiniProgramApp, type MiniProgramEnv } from './config.js';
 import { blockingIssues, defaultVersion, planApps, runPlans, type AppPlan } from './engine.js';
 
 const STEPS: WizardStep[] = [
   { id: 'apps', label: '小程序' },
   { id: 'action', label: '动作' },
+  { id: 'env', label: '环境' },
   { id: 'meta', label: '版本' },
   { id: 'confirm', label: '确认' },
   { id: 'run', label: '执行' },
 ];
 
-type Step = 'apps' | 'action' | 'meta' | 'confirm' | 'run' | 'done';
+type Step = 'apps' | 'action' | 'env' | 'meta' | 'confirm' | 'run' | 'done';
 
 type AppProgress = { message: string; done?: boolean; ok?: boolean; qrcodePath?: string };
 
@@ -39,6 +40,7 @@ export function MiniprogramWizard(props: {
   configPath?: string;
   appNames?: string[];
   action?: MiniProgramAction;
+  env?: MiniProgramEnv;
   version?: string;
   desc?: string;
   onHome?: () => void;
@@ -52,10 +54,11 @@ export function MiniprogramWizard(props: {
 
   const [config] = useState<LoadedMiniProgramConfig>(() => loadConfig(props.configPath));
   const [step, setStep] = useState<Step>(() => {
-    if (props.appNames?.length && props.action && hasReadyMeta(props.action, props.version, props.desc)) {
+    if (props.appNames?.length && props.action && props.env && hasReadyMeta(props.action, props.version, props.desc)) {
       return 'confirm';
     }
-    if (props.appNames?.length && props.action) return 'meta';
+    if (props.appNames?.length && props.action && props.env) return 'meta';
+    if (props.appNames?.length && props.action) return 'env';
     if (props.appNames?.length) return 'action';
     return 'apps';
   });
@@ -65,6 +68,7 @@ export function MiniprogramWizard(props: {
       : [],
   );
   const [action, setAction] = useState<MiniProgramAction | null>(props.action ?? null);
+  const [env, setEnv] = useState<MiniProgramEnv | null>(props.env ?? null);
   const [version, setVersion] = useState(props.version?.trim() || defaultVersion());
   const [desc, setDesc] = useState(props.desc?.trim() || '');
   const [status, setStatus] = useState('');
@@ -82,15 +86,16 @@ export function MiniprogramWizard(props: {
   }
 
   const plans: AppPlan[] = useMemo(() => {
-    if (!action || !apps.length) return [];
+    if (!action || !env || !apps.length) return [];
     return planApps({
       rootPath: config.rootPath,
       apps,
       action,
+      env,
       version,
       desc,
     });
-  }, [action, apps, config.rootPath, desc, version]);
+  }, [action, apps, config.rootPath, desc, env, version]);
 
   const blocked = useMemo(
     () => plans.flatMap((p) => blockingIssues(p, dryRun).map((issue) => ({ name: p.app.name, issue }))),
@@ -160,6 +165,7 @@ export function MiniprogramWizard(props: {
         : [],
     );
     setAction(props.action ?? null);
+    setEnv(props.env ?? null);
     setVersion(props.version?.trim() || defaultVersion());
     setDesc(props.desc?.trim() || '');
     setStatus('');
@@ -168,8 +174,9 @@ export function MiniprogramWizard(props: {
     setProgress({});
     setDoneCount(0);
     setStartedAt(undefined);
-    if (props.appNames?.length && props.action && hasReadyMeta(props.action, props.version, props.desc)) go('confirm');
-    else if (props.appNames?.length && props.action) go('meta');
+    if (props.appNames?.length && props.action && props.env && hasReadyMeta(props.action, props.version, props.desc)) go('confirm');
+    else if (props.appNames?.length && props.action && props.env) go('meta');
+    else if (props.appNames?.length && props.action) go('env');
     else if (props.appNames?.length) go('action');
     else go('apps');
   };
@@ -240,6 +247,40 @@ export function MiniprogramWizard(props: {
             ]}
             onSubmit={(item) => {
               setAction(item.value as MiniProgramAction);
+              go('env');
+            }}
+          />
+        </Box>
+      </Box>
+    );
+  }
+
+  if (step === 'env' && action) {
+    return (
+      <Box flexDirection="column">
+        <Banner title={bannerTitle} />
+        <WizardHeader current="env" steps={STEPS} />
+        <Text color={colors.muted}>
+          已选  {apps.map((a) => a.name).join(' · ')}  ·  {action === 'preview' ? '预览' : '上传'}
+        </Text>
+        <Box marginTop={1}>
+          <SelectList
+            key={`env-${navEpoch}`}
+            canBack
+            onBack={() => {
+              if (props.action) {
+                if (props.appNames?.length) goHome();
+                else go('apps');
+              } else {
+                go('action');
+              }
+            }}
+            items={[
+              { value: 'test', label: '测试', hint: '使用 .env.development 的接口地址' },
+              { value: 'prod', label: '正式', hint: '使用 .env.production 的接口地址' },
+            ]}
+            onSubmit={(item) => {
+              setEnv(item.value as MiniProgramEnv);
               go('meta');
             }}
           />
@@ -255,6 +296,7 @@ export function MiniprogramWizard(props: {
         <WizardHeader current="meta" steps={STEPS} />
         <Text color={colors.muted}>
           已选  {apps.map((a) => a.name).join(' · ')}  ·  {action === 'preview' ? '预览' : '上传'}
+          {env ? `  ·  ${envLabel(env)}` : ''}
         </Text>
         <Box marginTop={1}>
           <VersionRemarkForm
@@ -264,7 +306,7 @@ export function MiniprogramWizard(props: {
             requireDesc={action === 'upload'}
             onChangeVersion={setVersion}
             onChangeDesc={setDesc}
-            onBack={() => (props.action ? (props.appNames?.length ? goHome() : go('apps')) : go('action'))}
+            onBack={() => (props.env ? (props.action ? (props.appNames?.length ? goHome() : go('apps')) : go('action')) : go('env'))}
             onSubmit={(nextVersion, nextDesc) => {
               setVersion(nextVersion);
               setDesc(nextDesc);
@@ -280,6 +322,7 @@ export function MiniprogramWizard(props: {
     const confirmItems = blocked.length
       ? [
           { value: 'meta', label: '返回 · 改版本备注' },
+          { value: 'env', label: '返回 · 重选环境' },
           { value: 'apps', label: '返回 · 重选小程序' },
           { value: 'action', label: '返回 · 重选动作' },
           { value: 'home', label: props.onHome ? '回首页' : '退出' },
@@ -290,6 +333,7 @@ export function MiniprogramWizard(props: {
             label: dryRun ? '开始演练' : action === 'preview' ? '确认预览' : '确认上传',
           },
           { value: 'meta', label: '返回 · 改版本备注' },
+          { value: 'env', label: '返回 · 重选环境' },
           { value: 'apps', label: '返回 · 重选小程序' },
           { value: 'action', label: '返回 · 重选动作' },
           { value: 'home', label: props.onHome ? '回首页' : '退出' },
@@ -313,7 +357,7 @@ export function MiniprogramWizard(props: {
                   <Text color={colors.muted}>  {p.app.appid}</Text>
                 </Text>
                 <Text color={colors.muted}>
-                  {'      '}动作 {action}  ·  版本 {p.version}
+                  {'      '}动作 {action}  ·  环境 {envLabel(p.env)}  ·  版本 {p.version}
                 </Text>
                 <Text color={p.desc ? colors.muted : colors.danger}>
                   {'      '}备注 {p.desc || '（未填写）'}
@@ -355,6 +399,7 @@ export function MiniprogramWizard(props: {
             if (item.value === 'go') void startRun();
             else if (item.value === 'apps') go('apps');
             else if (item.value === 'action') go('action');
+            else if (item.value === 'env') go('env');
             else if (item.value === 'meta') go('meta');
             else goHome();
           }}

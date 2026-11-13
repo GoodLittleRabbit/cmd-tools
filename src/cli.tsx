@@ -11,7 +11,7 @@ import { printDeployLog } from './capabilities/upload-server/deploy/logFile.js';
 import { autoUpgradeOnStart, runUpgrade } from './capabilities/upload-server/upgrade.js';
 import { UploadWizard } from './capabilities/upload-server/UploadWizard.js';
 import { MiniprogramWizard } from './capabilities/miniprogram/MiniprogramWizard.js';
-import { parseAction, parseAppSelectors } from './capabilities/miniprogram/config.js';
+import { parseAction, parseAppSelectors, parseEnv } from './capabilities/miniprogram/config.js';
 import { runMiniprogramCli } from './capabilities/miniprogram/run.js';
 
 const cli = meow(
@@ -24,8 +24,8 @@ const cli = meow(
     $ cmd-tools upload-server --init
     $ cmd-tools upload-server --dry-run
     $ cmd-tools upload-server [options]
-    $ cmd-tools miniprogram --dry-run --app 电子名片 --action preview
-    $ cmd-tools mp --app <name|appid> --action preview|upload
+    $ cmd-tools miniprogram --dry-run --app 电子名片 --action preview --env test
+    $ cmd-tools mp --app <name|appid> --action preview|upload --env test|prod
     $ cmd-tools /upgrade
 
   Options
@@ -38,6 +38,7 @@ const cli = meow(
     --action            preview 或 upload（miniprogram）
     --version           小程序版本号（miniprogram；未传则从 0.0.1 起）
     --desc              版本备注（miniprogram；upload 必填）
+    --env               test 或 prod（miniprogram；test 用 .env.development，prod 用 .env.production）
     --config, -c        配置文件路径
 
   斜杠命令（给 AI / 终端，不在首页菜单）
@@ -58,6 +59,7 @@ const cli = meow(
       action: { type: 'string' },
       version: { type: 'string' },
       desc: { type: 'string' },
+      env: { type: 'string' },
       config: { type: 'string', shortFlag: 'c' },
     },
     autoVersion: false,
@@ -109,12 +111,14 @@ async function main() {
   if (cmd === 'miniprogram' || cmd === 'mp') {
     const selectors = parseAppSelectors(cli.flags.app);
     const action = parseAction(cli.flags.action);
-    if (selectors?.length && action) {
+    const env = parseEnv(cli.flags.env);
+    if (selectors?.length && action && env) {
       process.exit(
         await runMiniprogramCli({
           configPath: cli.flags.config,
           app: cli.flags.app,
           action: cli.flags.action,
+          env: cli.flags.env,
           version: cli.flags.version,
           desc: cli.flags.desc,
           dryRun: cli.flags.dryRun,
@@ -127,6 +131,7 @@ async function main() {
         configPath={cli.flags.config}
         appNames={selectors}
         action={action}
+        env={env}
         version={cli.flags.version}
         desc={cli.flags.desc}
       />,

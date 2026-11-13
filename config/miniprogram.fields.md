@@ -44,3 +44,13 @@ config/secrets/miniprogram/private.<appid>.key
 ```
 
 也可回退到 `~/.config/cmd-tools/secrets/miniprogram/private.<appid>.key`。权限保持 `600`。已 gitignore，不要提交。
+
+
+## 接口环境
+
+预览 / 上传时必须选择 `test` 或 `prod`，用于构建时的 Vite `--mode`：
+
+- **test**：`--mode development`，读取项目里的 `.env.development`（测试接口地址）。
+- **prod**：`--mode production`，读取 `.env.production`（正式接口地址）。
+
+向导里会单独问一步「环境」。命令行必须带 `--env test` 或 `--env prod`，不再默认走正式地址。

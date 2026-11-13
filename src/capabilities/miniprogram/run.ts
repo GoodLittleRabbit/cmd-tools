@@ -1,11 +1,12 @@
-import { loadConfig, parseAction, parseAppSelectors, resolveApps } from './config.js';
+import { envLabel, loadConfig, parseAction, parseAppSelectors, parseEnv, resolveApps } from './config.js';
 import { planApps, runPlans, type AppPlan } from './engine.js';
-import type { MiniProgramAction } from './config.js';
+import type { MiniProgramAction, MiniProgramEnv } from './config.js';
 
 export type MiniprogramCliOptions = {
   configPath?: string;
   app?: string;
   action?: string;
+  env?: string;
   version?: string;
   desc?: string;
   dryRun?: boolean;
@@ -29,15 +30,21 @@ export async function runMiniprogramCli(opts: MiniprogramCliOptions): Promise<nu
     console.error('上传必须用 --desc 填写版本备注。');
     return 1;
   }
+  const env = parseEnv(opts.env);
+  if (!env) {
+    console.error('请用 --env test 或 --env prod 指定接口环境（test 用 .env.development，prod 用 .env.production）。');
+    return 1;
+  }
   const apps = resolveApps(config, selectors);
   const plans = planApps({
     rootPath: config.rootPath,
     apps,
     action,
+    env,
     version: opts.version,
     desc: opts.desc,
   });
-  printHeader(config.configPath, opts.dryRun ?? false, action, plans);
+  printHeader(config.configPath, opts.dryRun ?? false, action, env, plans);
   const { ok, results } = await runPlans(plans, {
     dryRun: Boolean(opts.dryRun),
     emit: (ev) => {
@@ -57,11 +64,13 @@ function printHeader(
   configPath: string,
   dryRun: boolean,
   action: MiniProgramAction,
+  env: MiniProgramEnv,
   plans: AppPlan[],
 ): void {
   console.log(`配置    ${configPath}`);
   console.log(`模式    ${dryRun ? 'dry-run（不构建、不调用微信）' : '正式执行'}`);
   console.log(`动作    ${action === 'preview' ? '预览 preview' : '上传 upload'}`);
+  console.log(`环境    ${envLabel(env)}`);
   console.log(`小程序  ${plans.map((p) => p.app.name).join('、')}`);
   console.log('');
 }

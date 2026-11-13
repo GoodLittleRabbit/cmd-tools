@@ -6,8 +6,11 @@ import * as ci from 'miniprogram-ci';
 import { formatDateTime, formatStamp } from '../../time.js';
 import {
   appDir,
+  envLabel,
+  viteModeForEnv,
   type MiniProgramAction,
   type MiniProgramApp,
+  type MiniProgramEnv,
 } from './config.js';
 import {
   detectBuildCommand,
@@ -40,6 +43,7 @@ export type AppPlan = {
   app: MiniProgramApp;
   appDir: string;
   action: MiniProgramAction;
+  env: MiniProgramEnv;
   version: string;
   desc: string;
   build?: string;
@@ -54,6 +58,7 @@ export type PlanOptions = {
   rootPath: string;
   apps: MiniProgramApp[];
   action: MiniProgramAction;
+  env: MiniProgramEnv;
   version?: string;
   desc?: string;
 };
@@ -73,14 +78,29 @@ function cacheDir(): string {
   return path.join(os.homedir(), '.cache', 'cmd-tools', 'miniprogram');
 }
 
+/** 给构建命令加上 Vite/uni 的 --mode，测试走 .env.development，正式走 .env.production。 */
+export function applyBuildMode(command: string, env: MiniProgramEnv): string {
+  const mode = viteModeForEnv(env);
+  const trimmed = command.trim();
+  if (!trimmed) return trimmed;
+  if (/(?:^|\s)--mode(?:\s|=)\S+/.test(trimmed)) {
+    return trimmed.replace(/--mode(?:\s|=)\S+/, `--mode ${mode}`);
+  }
+  if (/^(pnpm|npm|yarn|bun)(\s+run)?\s+\S+/.test(trimmed)) {
+    return `${trimmed} -- --mode ${mode}`;
+  }
+  return `${trimmed} --mode ${mode}`;
+}
+
 export function planApps(opts: PlanOptions): AppPlan[] {
-  return opts.apps.map((app) => planApp(opts.rootPath, app, opts.action, opts.version, opts.desc));
+  return opts.apps.map((app) => planApp(opts.rootPath, app, opts.action, opts.env, opts.version, opts.desc));
 }
 
 export function planApp(
   rootPath: string,
   app: MiniProgramApp,
   action: MiniProgramAction,
+  env: MiniProgramEnv,
   version?: string,
   desc?: string,
 ): AppPlan {
@@ -90,7 +110,8 @@ export function planApp(
     issues.push(`项目目录不存在: ${dir}`);
   }
 
-  const build = app.build?.trim() || (fs.existsSync(dir) ? detectBuildCommand(dir) : undefined);
+  const rawBuild = app.build?.trim() || (fs.existsSync(dir) ? detectBuildCommand(dir) : undefined);
+  const build = rawBuild ? applyBuildMode(rawBuild, env) : undefined;
   let project: DetectedPath | undefined;
   let expected: string | undefined;
 
@@ -148,6 +169,7 @@ export function planApp(
     app,
     appDir: dir,
     action,
+    env,
     version: ver,
     desc: remark,
     build,
@@ -169,6 +191,7 @@ export function describePlan(plan: AppPlan, dryRun: boolean): string[] {
     `  类型       ${plan.app.type}`,
     `  目录       ${plan.appDir}`,
     `  动作       ${plan.action === 'preview' ? '预览 preview' : '上传 upload'}`,
+    `  环境       ${envLabel(plan.env)}`,
     `  版本       ${plan.version}`,
     `  备注       ${plan.desc}`,
     `  构建       ${plan.build ? `${plan.build}${dryRun ? '（演练不执行）' : ''}` : '（无）'}`,
